@@ -1,0 +1,25 @@
+{
+  "name": "noetron-chat-with-file",
+  "version": "0.1.0",
+  "description": "Chat with an LLM using a file as context. Based on owncloud/web-extensions web-app-chat-with-file (Apache-2.0)",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^6.2.108",
+    "vue3-gettext": "^2.4.0"
+  },
+  "devDependencies": {
+    "@opencloud-eu/extension-sdk": "7.0.1",
+    "@opencloud-eu/web-client": "^4.0.0",
+    "@opencloud-eu/web-pkg": "^4.0.0",
+    "typescript": "5.9.3",
+    "vite": "^8.1.4",
+    "vue": "^3.5.41",
+    "vue-router": "^5.2.0",
+    "vue-tsc": "3.3.9"
+  }
+}
