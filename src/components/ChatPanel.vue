@@ -160,12 +160,11 @@
 
           <oc-select
             v-if="models.length > 1"
-            v-model="selectedModelId"
+            v-model="selectedModelObj"
             class="model-select"
             :label="$pgettext('Model selector label', 'Model')"
             :label-hidden="true"
             :options="models"
-            :reduce="reduceModelOption"
             :searchable="false"
             :position-fixed="true"
           />
@@ -228,9 +227,14 @@ const {
   ensureReady
 } = useChat(props.llmConfig ?? null, toRef(props, 'resource'))
 
-function reduceModelOption(option: LlmModelOption): string {
-  return option.id
-}
+const selectedModelObj = computed({
+  get: () => models.value.find((m) => m.id === selectedModelId.value) ?? models.value[0] ?? null,
+  set: (val: LlmModelOption | null) => {
+    if (val) {
+      selectedModelId.value = val.id
+    }
+  }
+})
 
 const inputText = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
@@ -408,8 +412,7 @@ onMounted(() => {
 }
 
 .chat-bubble--assistant {
-  background-color: var(--oc-color-background-muted, #f4f4f4);
-  color: var(--oc-color-text-default, inherit);
+  color: inherit;
 }
 
 .chat-bubble--loading {
@@ -526,7 +529,6 @@ onMounted(() => {
   transition:
     border-color 0.15s,
     box-shadow 0.15s;
-  background: var(--oc-color-input-bg, #fff);
 }
 
 .chat-input-card--focused {
@@ -602,7 +604,7 @@ onMounted(() => {
 
 /* Model selector (only visible with 2+ models) */
 .model-select {
-  width: 150px;
+  width: 110px;
   flex-shrink: 0;
 }
 .model-select :deep(.vs__actions) {
