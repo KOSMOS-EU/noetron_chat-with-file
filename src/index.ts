@@ -18,6 +18,7 @@ export default defineWebApplication({
   setup({ applicationConfig }) {
     const { $pgettext } = useGettext()
     const resourcesStore = useResourcesStore()
+    const { isSideBarOpen, sideBarActivePanel } = useSideBar()
 
     const rawLlm = applicationConfig?.llm as Record<string, string> | undefined
     const llmConfig: LlmConfig | null =
@@ -55,7 +56,6 @@ export default defineWebApplication({
             resources?.length === 1 && isSupportedFile(resources[0], SUPPORTED_EXTS),
           handler: ({ resources }: FileActionOptions) => {
             resourcesStore.setSelection(resources.map(({ id }) => id))
-            const { isSideBarOpen, sideBarActivePanel } = useSideBar()
             sideBarActivePanel.value = APP_ID
             isSideBarOpen.value = true
           }
