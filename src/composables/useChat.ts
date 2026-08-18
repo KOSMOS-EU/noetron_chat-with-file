@@ -4,7 +4,7 @@ import * as pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs'
 import type { TextItem } from 'pdfjs-dist/types/src/display/api'
 import { useAuthStore, useClientService, useSpacesStore } from '@opencloud-eu/web-pkg'
 import { useGettext } from 'vue3-gettext'
-import { useLlm, type LlmConfig, type LlmStatus } from './useLlm'
+import { useLlm, type LlmConfig, type LlmModelOption, type LlmStatus } from './useLlm'
 
 export const TEXT_EXTENSIONS = new Set(['txt', 'md'])
 const MAX_CONTENT_CHARS = 12_000
@@ -33,6 +33,8 @@ export interface ChatMessage {
 
 export interface UseChatResult {
   status: Ref<LlmStatus>
+  models: Ref<LlmModelOption[]>
+  selectedModelId: Ref<string>
   messages: Ref<ChatMessage[]>
   isLoading: Ref<boolean>
   isApplying: Ref<boolean>
@@ -49,7 +51,7 @@ export function useChat(
   resource: Ref<ChatResource | null | undefined>
 ): UseChatResult {
   const { $gettext } = useGettext()
-  const { status, config, ensureReady } = useLlm(llmConfig)
+  const { status, config, models, selectedModelId, selectedModel, ensureReady } = useLlm(llmConfig)
   const authStore = useAuthStore()
   const clientService = useClientService()
   const spacesStore = useSpacesStore()
@@ -203,6 +205,10 @@ export function useChat(
         messages.value = messages.value.slice(0, -1)
         return
       }
+      if (!selectedModel.value) {
+        messages.value = messages.value.slice(0, -1)
+        return
+      }
       const base = cfg.endpoint.replace(/\/$/, '')
 
       // Refuse to attach credentials or send file content to a cross-origin endpoint.
@@ -268,7 +274,11 @@ export function useChat(
         // configurable) upstream timeout; only guards against the network or proxy
         // never responding at all.
         signal: AbortSignal.timeout(300_000),
-        body: JSON.stringify({ model: cfg.model, messages: requestMessages, max_tokens: 4096 })
+        body: JSON.stringify({
+          model: selectedModel.value.model,
+          messages: requestMessages,
+          max_tokens: 4096
+        })
       })
 
       if (!res.ok) {
@@ -406,6 +416,8 @@ export function useChat(
 
   return {
     status,
+    models,
+    selectedModelId,
     messages,
     isLoading,
     isApplying,

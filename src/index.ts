@@ -9,7 +9,7 @@ import { useGettext } from 'vue3-gettext'
 import type { Resource, SpaceResource } from '@opencloud-eu/web-client'
 import ChatPanel from './components/ChatPanel.vue'
 import { isSupportedFile } from './utils/file-support'
-import type { LlmConfig } from './composables/useLlm'
+import type { LlmConfig, LlmModelOption } from './composables/useLlm'
 
 const SUPPORTED_EXTS = ['pdf', 'txt', 'md']
 const APP_ID = 'chat-with-file'
@@ -20,10 +20,28 @@ export default defineWebApplication({
     const resourcesStore = useResourcesStore()
     const sideBarStore = useSideBar() as any
 
-    const rawLlm = applicationConfig?.llm as Record<string, string> | undefined
+    const rawLlm = applicationConfig?.llm as
+      | Record<string, string | Array<Record<string, string>>>
+      | undefined
+
+    // Build the model list from `models:` (new) or fall back to a bare `model:` (legacy)
+    const rawModels: Array<Record<string, string>> = Array.isArray(rawLlm?.models)
+      ? (rawLlm.models as Array<Record<string, string>>)
+      : rawLlm?.model
+        ? [{ model: rawLlm.model as string }]
+        : []
+
+    const models: LlmModelOption[] = rawModels
+      .filter((m) => typeof m.model === 'string' && m.model.length > 0)
+      .map((m) => ({
+        id: m.id || m.model,
+        label: m.label || m.model,
+        model: m.model
+      }))
+
     const llmConfig: LlmConfig | null =
-      rawLlm?.endpoint && rawLlm?.model
-        ? { endpoint: rawLlm.endpoint, model: rawLlm.model }
+      rawLlm?.endpoint && models.length > 0
+        ? { endpoint: rawLlm.endpoint as string, models }
         : null
 
     const extensions = computed(() => [

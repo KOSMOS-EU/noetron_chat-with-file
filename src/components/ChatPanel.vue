@@ -158,6 +158,18 @@
             </button>
           </div>
 
+          <oc-select
+            v-if="models.length > 1"
+            v-model="selectedModelId"
+            class="model-select"
+            :label="$pgettext('Model selector label', 'Model')"
+            :label-hidden="true"
+            :options="models"
+            :reduce="reduceModelOption"
+            :searchable="false"
+            :position-fixed="true"
+          />
+
           <button
             class="send-btn"
             :disabled="isLoading || isApplying || !inputText.trim()"
@@ -185,7 +197,7 @@
 import { ref, computed, toRef, watch, nextTick, onMounted } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import { useChat, TEXT_EXTENSIONS, type ChatResource } from '../composables/useChat'
-import type { LlmConfig } from '../composables/useLlm'
+import type { LlmConfig, LlmModelOption } from '../composables/useLlm'
 import { computeDiff } from '../utils/diff'
 import type { DiffLineType } from '../utils/diff'
 
@@ -203,6 +215,8 @@ const props = defineProps<{
 
 const {
   status,
+  models,
+  selectedModelId,
   messages,
   isLoading,
   isApplying,
@@ -213,6 +227,10 @@ const {
   clearChat,
   ensureReady
 } = useChat(props.llmConfig ?? null, toRef(props, 'resource'))
+
+function reduceModelOption(option: LlmModelOption): string {
+  return option.id
+}
 
 const inputText = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
@@ -580,6 +598,21 @@ onMounted(() => {
 .mode-pill:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+/* Model selector (only visible with 2+ models) */
+.model-select {
+  width: 150px;
+  flex-shrink: 0;
+}
+.model-select :deep(.vs__actions) {
+  padding: 0 2px;
+  min-height: 28px;
+}
+.model-select :deep(.vs__selection),
+.model-select :deep(.vs__selected) {
+  font-size: 0.8rem;
+  line-height: 1.4;
 }
 
 /* Send icon button */

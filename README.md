@@ -23,6 +23,7 @@ Keine funktionalen Aenderungen am Code.
 
 - **Chat**: Q&A ueber Dateiinhalte (PDF, TXT, MD)
 - **Edit**: LLM-basiertes Rewriting mit Diff-Preview + Apply/Discard
+- **Modellwahl**: oc-Select im Chat-Panel (nur sichtbar ab 2 Modellen), Auswahl in localStorage persistiert
 - PDF-Text-Extraktion client-seitig (PDF.js)
 - Session-Cache fuer Chat-History
 - ETag-basierte Concurrency-Kontrolle beim Schreiben
@@ -36,8 +37,25 @@ chat-with-file:
   config:
     llm:
       endpoint: "https://cloud.example.com/ai-chat/v1"
-      model: "local-ocr"
+      models:
+        - id: local-ocr
+          label: "Qwen 3.5 (122B)"
+          model: local-ocr
+        - id: local-ocr2
+          label: "Qwen 3.8 (27B)"
+          model: local-ocr2
 ```
+
+- `model` ist der Name, der an den Endpoint geschickt wird (typischerweise eine
+  microllm-Alias-Gruppe, z.B. `local-ocr` — das Loadbalancing uebernommt microllm).
+- `id` ist der stabile Key fuer die Auswahl-Persistenz (Default: `model`).
+- `label` ist der Anzeigename im Modell-Selektor (Default: `model`).
+- Ab 2 Modellen erscheint ein oc-Select im Chat-Panel; die Auswahl wird pro
+  Browser in localStorage gemerkt (`cwf.selectedModel`).
+- **Backward-Compat**: ein nacktes `model: "local-ocr"` (ohne `models:`) wird
+  intern in eine 1-Element-Liste normalisiert — alte Configs laufen unveraendert.
+- Ohne `endpoint` oder ohne mindestens ein gueltiges Modell bleibt die Extension
+  im "unconfigured"-Zustand.
 
 Endpoint muss same-origin sein (Browser schickt Bearer-Token mit).
 
