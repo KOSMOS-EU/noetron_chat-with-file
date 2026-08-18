@@ -160,11 +160,12 @@
 
           <oc-select
             v-if="models.length > 1"
-            v-model="selectedModelObj"
+            v-model="selectedModelId"
             class="model-select"
             :label="$pgettext('Model selector label', 'Model')"
             :label-hidden="true"
             :options="models"
+            :reduce="reduceModelOption"
             :searchable="false"
             :position-fixed="true"
           />
@@ -227,13 +228,18 @@ const {
   ensureReady
 } = useChat(props.llmConfig ?? null, toRef(props, 'resource'))
 
-const selectedModelObj = computed({
-  get: () => models.value.find((m) => m.id === selectedModelId.value) ?? models.value[0] ?? null,
-  set: (val: LlmModelOption | null) => {
-    if (val) {
-      selectedModelId.value = val.id
-    }
-  }
+// DEBUG: temporarily trace model selection (remove once the single-option issue is resolved)
+function reduceModelOption(option: LlmModelOption): string {
+  console.debug('[cwf] oc-select reduce called for option:', JSON.stringify(option))
+  return option.id
+}
+
+watch(selectedModelId, (newId, oldId) => {
+  console.debug(`[cwf] selectedModelId changed: ${oldId} -> ${newId}`)
+})
+
+onMounted(() => {
+  console.debug('[cwf] ChatPanel mounted, models:', JSON.stringify(models.value))
 })
 
 const inputText = ref('')
