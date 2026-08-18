@@ -1,7 +1,7 @@
 import {
   defineWebApplication,
-  eventBus,
-  useResourcesStore
+  useResourcesStore,
+  useSideBar
 } from '@opencloud-eu/web-pkg'
 import type { SidebarPanelExtension, ActionExtension, FileActionOptions } from '@opencloud-eu/web-pkg'
 import { computed } from 'vue'
@@ -55,7 +55,9 @@ export default defineWebApplication({
             resources?.length === 1 && isSupportedFile(resources[0], SUPPORTED_EXTS),
           handler: ({ resources }: FileActionOptions) => {
             resourcesStore.setSelection(resources.map(({ id }) => id))
-            eventBus.publish('sidebar.openWithPanel', APP_ID)
+            const { isSideBarOpen, sideBarActivePanel } = useSideBar()
+            sideBarActivePanel.value = APP_ID
+            isSideBarOpen.value = true
           }
         }
       } as ActionExtension
