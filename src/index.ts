@@ -1,7 +1,6 @@
 import {
   defineWebApplication,
   eventBus,
-  SideBarEventTopics,
   useResourcesStore
 } from '@opencloud-eu/web-pkg'
 import type { SidebarPanelExtension, ActionExtension, FileActionOptions } from '@opencloud-eu/web-pkg'
@@ -56,7 +55,7 @@ export default defineWebApplication({
             resources?.length === 1 && isSupportedFile(resources[0], SUPPORTED_EXTS),
           handler: ({ resources }: FileActionOptions) => {
             resourcesStore.setSelection(resources.map(({ id }) => id))
-            eventBus.publish(SideBarEventTopics.openWithPanel, APP_ID)
+            eventBus.publish('sidebar.openWithPanel', APP_ID)
           }
         }
       } as ActionExtension
