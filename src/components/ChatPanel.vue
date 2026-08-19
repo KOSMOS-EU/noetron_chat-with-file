@@ -139,24 +139,20 @@
           @keydown.enter.exact.prevent="submit"
         />
         <div class="chat-input-footer">
-          <div class="chat-mode-pills" role="group" :aria-label="$gettext('Chat mode')">
-            <button
-              class="mode-pill"
-              :class="{ 'mode-pill--active': mode === 'chat' }"
-              @click="mode = 'chat'"
-            >
-              {{ $pgettext('Mode toggle — ask questions about the file', 'Chat') }}
-            </button>
-            <button
-              class="mode-pill"
-              :class="{ 'mode-pill--active': mode === 'edit' }"
-              :disabled="!isEditable"
-              :title="isEditable ? undefined : $gettext('Editing is only available for text files')"
-              @click="mode = 'edit'"
-            >
-              {{ $pgettext('Mode toggle — request changes to the file', 'Edit') }}
-            </button>
-          </div>
+          <!-- Single Edit toggle: off = chat, on = edit, disabled = file not editable (e.g. PDF) -->
+          <button
+            class="mode-pill"
+            :class="{ 'mode-pill--active': mode === 'edit' }"
+            :disabled="!isEditable"
+            role="switch"
+            :aria-checked="mode === 'edit'"
+            :title="isEditable
+              ? $gettext('Rewrite the file with the model (diff preview, then apply or discard)')
+              : $gettext('Editing is only available for text files')"
+            @click="mode = mode === 'edit' ? 'chat' : 'edit'"
+          >
+            {{ $pgettext('Edit toggle label', 'Edit') }}
+          </button>
 
           <button
             class="mode-pill"
@@ -580,12 +576,6 @@ onMounted(() => {
   padding: 6px 8px;
 }
 
-/* Mode pills */
-.chat-mode-pills {
-  display: flex;
-  gap: 4px;
-}
-
 .mode-pill {
   display: inline-flex;
   align-items: center;
@@ -622,7 +612,7 @@ onMounted(() => {
 
 /* Model selector (only visible with 2+ models) */
 .model-select {
-  width: 140px;
+  width: 160px;
   flex-shrink: 0;
 }
 /* The select sits at the bottom of the sidebar: open the dropdown upwards,
