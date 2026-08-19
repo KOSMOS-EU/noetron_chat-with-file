@@ -37,6 +37,8 @@ export interface UseChatResult {
   selectedModelId: Ref<string>
   /** Chain-of-thought toggle (persisted); sent as explicit enable_thinking */
   thinking: Ref<boolean>
+  /** True when the file text exceeds MAX_CONTENT_CHARS (only the beginning reaches the model) */
+  fileTruncated: Ref<boolean>
   messages: Ref<ChatMessage[]>
   isLoading: Ref<boolean>
   isApplying: Ref<boolean>
@@ -64,22 +66,7 @@ export function useChat(
   const isLoading = ref(false)
   const isApplying = ref(false)
   const panelError = ref<string | null>(null)
-
-  watch(
-    () => resource.value?.id,
-    (newId, oldId) => {
-      if (newId && oldId && newId !== oldId) {
-        panelError.value = null
-        isApplying.value = false
-        cachedFileText = null
-        cachedResourceId = undefined
-        cachedFileEtag = null
-      }
-      if (newId) {
-        messages.value = messageCache.get(newId) ?? []
-      }
-    }
-  )
+  const fileTruncated = ref(false)
 
   watch(messages, (msgs) => {
     const id = resource.value?.id
@@ -157,20 +144,57 @@ export function useChat(
       const headerMap = headers as Record<string, string>
       const etagKey = Object.keys(headerMap).find((k) => k.toLowerCase() === 'etag')
       cachedFileEtag = etagKey !== undefined ? headerMap[etagKey] : null
+      // Text files are fetched in full; chat truncates them at request time, so
+      // exceeding the cap means part of the file is invisible to the model
+      fileTruncated.value = text.length > MAX_CONTENT_CHARS
     } else {
       const { response } = await clientService.webdav.getFileContents(
         space,
         { path: res.path },
         { responseType: 'arraybuffer' }
       )
+      // extractPdfText stops once MAX_CONTENT_CHARS is reached — hitting the
+      // cap means the file has (at least) more content
       text = (await extractPdfText(response.data as ArrayBuffer)).slice(0, MAX_CONTENT_CHARS)
       cachedFileEtag = null
+      fileTruncated.value = text.length >= MAX_CONTENT_CHARS
     }
 
     cachedResourceId = res.id
     cachedFileText = text
     return text
   }
+
+  // Warm the text cache (and the truncation flag) as soon as a file is open,
+  // so the truncation notice is visible before the first message is sent
+  async function prefetchFileText(): Promise<void> {
+    try {
+      await fetchFileText()
+    } catch {
+      /* fetch errors surface on send */
+    }
+  }
+
+  watch(
+    () => resource.value?.id,
+    (newId, oldId) => {
+      if (newId && oldId && newId !== oldId) {
+        panelError.value = null
+        isApplying.value = false
+        cachedFileText = null
+        cachedResourceId = undefined
+        cachedFileEtag = null
+      }
+      if (newId) {
+        messages.value = messageCache.get(newId) ?? []
+        fileTruncated.value = false
+        if (cachedFileText === null) {
+          prefetchFileText()
+        }
+      }
+    },
+    { immediate: true }
+  )
 
   function aiErrorMessage(httpStatus: number): string {
     if (httpStatus === 401 || httpStatus === 403) {
@@ -427,6 +451,7 @@ export function useChat(
     models,
     selectedModelId,
     thinking,
+    fileTruncated,
     messages,
     isLoading,
     isApplying,

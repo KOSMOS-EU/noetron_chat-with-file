@@ -114,6 +114,11 @@
         {{ panelError }}
       </div>
 
+      <!-- Truncation notice (chat mode only: edit mode refuses oversized files) -->
+      <div v-if="fileTruncated && mode !== 'edit'" class="chat-truncation-note oc-mb-s">
+        {{ $gettext('This file is longer than 12,000 characters — only the beginning is used.') }}
+      </div>
+
       <!-- Clear button -->
       <div v-if="messages.length > 0" class="oc-flex oc-flex-right oc-mb-xs">
         <oc-button size="small" appearance="raw" @click="clearChat">
@@ -226,6 +231,7 @@ const {
   models,
   selectedModelId,
   thinking,
+  fileTruncated,
   messages,
   isLoading,
   isApplying,
@@ -402,6 +408,11 @@ onMounted(() => {
 .chat-error {
   color: var(--oc-color-danger, #c00);
   font-size: 0.875rem;
+}
+
+.chat-truncation-note {
+  font-size: 0.75rem;
+  color: var(--oc-color-text-muted, #6f6f6f);
 }
 
 .chat-message--user {
