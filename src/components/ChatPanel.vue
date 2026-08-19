@@ -167,7 +167,6 @@
             :options="models"
             :reduce="reduceModelOption"
             :searchable="false"
-            :position-fixed="true"
           />
 
           <button
@@ -531,7 +530,6 @@ onMounted(() => {
 .chat-input-card {
   border: 1px solid var(--oc-color-input-border, #ccc);
   border-radius: 10px;
-  overflow: hidden;
   transition:
     border-color 0.15s,
     box-shadow 0.15s;
@@ -612,6 +610,12 @@ onMounted(() => {
 .model-select {
   width: 110px;
   flex-shrink: 0;
+}
+/* The select sits at the bottom of the sidebar: open the dropdown upwards,
+   the default downward direction would clip the options below the viewport */
+.model-select :deep(.vs__dropdown-menu) {
+  top: auto;
+  bottom: calc(100% + 2px);
 }
 .model-select :deep(.vs__actions) {
   padding: 0 2px;
