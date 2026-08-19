@@ -622,7 +622,7 @@ onMounted(() => {
 
 /* Model selector (only visible with 2+ models) */
 .model-select {
-  width: 120px;
+  width: 140px;
   flex-shrink: 0;
 }
 /* The select sits at the bottom of the sidebar: open the dropdown upwards,
