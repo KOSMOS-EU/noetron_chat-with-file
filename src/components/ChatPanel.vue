@@ -168,7 +168,7 @@
             )"
             @click="thinking = !thinking"
           >
-            {{ $pgettext('Thinking toggle label', 'Thinking') }}
+            {{ $pgettext('Thinking toggle label', 'Think') }}
           </button>
 
           <oc-select
@@ -622,7 +622,7 @@ onMounted(() => {
 
 /* Model selector (only visible with 2+ models) */
 .model-select {
-  width: 140px;
+  width: 120px;
   flex-shrink: 0;
 }
 /* The select sits at the bottom of the sidebar: open the dropdown upwards,

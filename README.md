@@ -62,7 +62,7 @@ Endpoint muss same-origin sein (Browser schickt Bearer-Token mit).
 
 ### Thinking (Chain of Thought)
 
-Der "Thinking"-Schalter im Chat-Panel toggelt das Modell-Reasoning. Er wirkt
+Der "Think"-Schalter im Chat-Panel toggelt das Modell-Reasoning. Er wirkt
 ab der naechsten Nachricht und wird pro Browser in localStorage gemerkt
 (`cwf.thinking`, Default: aus).
 
