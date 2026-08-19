@@ -158,6 +158,19 @@
             </button>
           </div>
 
+          <button
+            class="mode-pill"
+            :class="{ 'mode-pill--active': thinking }"
+            role="switch"
+            :aria-checked="thinking"
+            :title="$gettext(
+              'Let the model think (chain of thought) before answering. Applies from the next message.'
+            )"
+            @click="thinking = !thinking"
+          >
+            {{ $pgettext('Thinking toggle label', 'Thinking') }}
+          </button>
+
           <oc-select
             v-if="models.length > 1"
             v-model="selectedModelId"
@@ -216,6 +229,7 @@ const {
   status,
   models,
   selectedModelId,
+  thinking,
   messages,
   isLoading,
   isApplying,
@@ -562,7 +576,7 @@ onMounted(() => {
 .chat-input-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   padding: 6px 8px;
 }
 
@@ -646,6 +660,9 @@ onMounted(() => {
   cursor: pointer;
   transition: opacity 0.15s;
   flex-shrink: 0;
+  /* keep the send button on the right edge when the model select is hidden
+     (single-model setups have fewer footer children) */
+  margin-left: auto;
 }
 
 .send-btn:disabled {

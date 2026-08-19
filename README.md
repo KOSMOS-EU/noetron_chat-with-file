@@ -24,6 +24,7 @@ Keine funktionalen Aenderungen am Code.
 - **Chat**: Q&A ueber Dateiinhalte (PDF, TXT, MD)
 - **Edit**: LLM-basiertes Rewriting mit Diff-Preview + Apply/Discard
 - **Modellwahl**: oc-Select im Chat-Panel (nur sichtbar ab 2 Modellen), Auswahl in localStorage persistiert
+- **Thinking-Toggle**: Chain-of-Thought pro Session ein/aus, in localStorage persistiert
 - PDF-Text-Extraktion client-seitig (PDF.js)
 - Session-Cache fuer Chat-History
 - ETag-basierte Concurrency-Kontrolle beim Schreiben
@@ -58,6 +59,28 @@ chat-with-file:
   im "unconfigured"-Zustand.
 
 Endpoint muss same-origin sein (Browser schickt Bearer-Token mit).
+
+### Thinking (Chain of Thought)
+
+Der "Thinking"-Schalter im Chat-Panel toggelt das Modell-Reasoning. Er wirkt
+ab der naechsten Nachricht und wird pro Browser in localStorage gemerkt
+(`cwf.thinking`, Default: aus).
+
+Jeder Request sendet das Ergebnis **explizit** — nie wird auf den
+Server-Default verlassen:
+
+```json
+{ "chat_template_kwargs": { "enable_thinking": true } }
+```
+
+- `enable_thinking` wird pro Request gesetzt (true/false).
+- `max_tokens` ist bei Thinking an auf 16384 erhoht (Thinking-Tokens brauchen
+  Ausgabebudget), sonst 4096.
+- `reasoning_effort` wird NICHT gesendet — die Denktiefe bleibt beim
+  nativen Default des Modells (unterschiedlich je Modell).
+- Voraussetzungen: das Modell-Template muss `enable_thinking` unterstuetzen
+  (Qwen3.5/3.8: ja) und vLLM laeuft mit `--reasoning-parser`, damit die
+  CoT-Tokens nicht in `content` landen.
 
 ## Build
 

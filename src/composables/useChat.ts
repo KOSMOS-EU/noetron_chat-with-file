@@ -35,6 +35,8 @@ export interface UseChatResult {
   status: Ref<LlmStatus>
   models: Ref<LlmModelOption[]>
   selectedModelId: Ref<string>
+  /** Chain-of-thought toggle (persisted); sent as explicit enable_thinking */
+  thinking: Ref<boolean>
   messages: Ref<ChatMessage[]>
   isLoading: Ref<boolean>
   isApplying: Ref<boolean>
@@ -51,7 +53,8 @@ export function useChat(
   resource: Ref<ChatResource | null | undefined>
 ): UseChatResult {
   const { $gettext } = useGettext()
-  const { status, config, models, selectedModelId, selectedModel, ensureReady } = useLlm(llmConfig)
+  const { status, config, models, selectedModelId, selectedModel, thinking, ensureReady } =
+    useLlm(llmConfig)
   const authStore = useAuthStore()
   const clientService = useClientService()
   const spacesStore = useSpacesStore()
@@ -277,7 +280,12 @@ export function useChat(
         body: JSON.stringify({
           model: selectedModel.value.model,
           messages: requestMessages,
-          max_tokens: 4096
+          // Thinking needs more output budget for the chain-of-thought tokens
+          max_tokens: thinking.value ? 16384 : 4096,
+          // Always sent explicitly (on or off) so the request never depends on
+          // server-side template defaults. No reasoning_effort: depth differs
+          // per model and the native default is what we want.
+          chat_template_kwargs: { enable_thinking: thinking.value }
         })
       })
 
@@ -418,6 +426,7 @@ export function useChat(
     status,
     models,
     selectedModelId,
+    thinking,
     messages,
     isLoading,
     isApplying,
