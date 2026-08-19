@@ -608,7 +608,7 @@ onMounted(() => {
 
 /* Model selector (only visible with 2+ models) */
 .model-select {
-  width: 110px;
+  width: 140px;
   flex-shrink: 0;
 }
 /* The select sits at the bottom of the sidebar: open the dropdown upwards,
@@ -625,6 +625,11 @@ onMounted(() => {
 .model-select :deep(.vs__selected) {
   font-size: 0.8rem;
   line-height: 1.4;
+  /* keep the selected label on one line so the closed box keeps its 36px height */
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Send icon button */
