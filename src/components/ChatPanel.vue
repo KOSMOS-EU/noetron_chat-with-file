@@ -590,7 +590,7 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 10px;
+  padding: 3px 8px;
   font-size: 0.8rem;
   font-family: inherit;
   border: 1px solid var(--oc-color-input-border, #ccc);
