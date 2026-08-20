@@ -53,6 +53,8 @@
                   >
                     <span class="trace-tool">{{ entry.tool }}</span>
                     <span v-if="entry.path" class="trace-path">{{ entry.path }}</span>
+                    <span v-if="entry.method" class="trace-flag trace-flag--method">{{ entry.method }}</span>
+                    <span v-if="entry.chars > 0" class="trace-flag">{{ formatChars(entry.chars) }}</span>
                     <span v-if="entry.truncated" class="trace-flag trace-flag--warn">
                       {{ $pgettext('Tool-trace flag: file was truncated', 'truncated') }}
                     </span>
@@ -375,6 +377,10 @@ function toggleTrace(index: number): void {
     : [...expandedTraces.value, index]
 }
 
+function formatChars(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k chars` : `${n} chars`
+}
+
 function diffPrefix(type: FlatLine['type']): string {
   if (type === 'added') return '+ '
   if (type === 'removed') return '- '
@@ -653,6 +659,12 @@ onMounted(() => {
 
 .trace-flag--error {
   color: var(--oc-color-danger, #c00);
+}
+
+.trace-flag--method {
+  font-style: normal;
+  font-family: var(--oc-font-family-mono, monospace);
+  font-size: 0.9em;
 }
 
 /* Unified input card */
