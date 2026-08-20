@@ -599,10 +599,11 @@ export function useChat(
       const res = await fetch(`${window.location.origin}/chat/ask`, {
         method: 'POST',
         headers: buildHeaders(),
-        // Folder chat legitimately takes several minutes (many files, OCR on
-        // scans). The SSE progress events keep the UI alive; this ceiling is
-        // only a safety net against a hung connection.
-        signal: AbortSignal.timeout(900_000),
+        // Folder chat legitimately takes 10–20+ minutes (many LLM iterations
+        // over a growing context, OCR on scans). The SSE progress events keep
+        // the UI alive; this ceiling is only a safety net against a hung
+        // connection.
+        signal: AbortSignal.timeout(1800_000),
         body: JSON.stringify({
           // Empty when no local endpoint config exists — Taki falls back to
           // its configured default model.
