@@ -37,6 +37,17 @@ export interface ToolTraceEntry {
   ms?: number
 }
 
+/** Live progress while the Taki tool loop runs (folder chat, streamed) */
+export interface FolderProgress {
+  /** Completed tool executions so far */
+  count: number
+  /** File currently being processed (undefined while the model thinks) */
+  current?: string
+  /** True between tool results, while the LLM decides the next step */
+  thinking: boolean
+  startedAt: number
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
@@ -64,11 +75,73 @@ export interface UseChatResult {
   isLoading: Ref<boolean>
   isApplying: Ref<boolean>
   panelError: Ref<string | null>
+  /** Live tool-loop progress (folder chat only, null when idle) */
+  folderProgress: Ref<FolderProgress | null>
   sendMessage: (text: string, mode: 'chat' | 'edit') => Promise<void>
   applyEdit: (proposal: string, index: number) => Promise<void>
   discardEdit: (index: number) => void
   clearChat: () => void
   ensureReady: () => void
+}
+
+/** Final payload of the Taki /chat/ask 'done' event (or the plain JSON answer) */
+interface ChatAskData {
+  answer?: string
+  tool_trace?: ToolTraceEntry[]
+  iterations?: number
+  error?: string
+}
+
+/** One Server-Sent-Events frame from /chat/ask (stream: true) */
+interface ChatStreamEvent {
+  type: string
+  [key: string]: unknown
+}
+
+/**
+ * Reads the SSE stream of /chat/ask. Resolves with the 'done' payload,
+ * rejects on an 'error' frame or a connection end without an answer.
+ * onEvent is called for every other frame (start, phase, tool).
+ */
+async function readChatStream(
+  body: ReadableStream<Uint8Array>,
+  onEvent: (ev: ChatStreamEvent) => void
+): Promise<ChatAskData> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  let doneData: ChatAskData | null = null
+  for (;;) {
+    const { value, done: eof } = await reader.read()
+    if (value) {
+      buf += decoder.decode(value, { stream: true })
+    }
+    let sep: number
+    while ((sep = buf.indexOf('\n\n')) >= 0) {
+      const frame = buf.slice(0, sep)
+      buf = buf.slice(sep + 2)
+      let name = ''
+      let payload = ''
+      for (const line of frame.split('\n')) {
+        if (line.startsWith('event: ')) name = line.slice(7)
+        else if (line.startsWith('data: ')) payload = line.slice(6)
+      }
+      if (!name || !payload) continue
+      const ev = JSON.parse(payload) as Record<string, unknown>
+      if (name === 'done') {
+        doneData = ev as unknown as ChatAskData
+      } else if (name === 'error') {
+        throw new Error(String(ev.error ?? 'unknown error from the AI service'))
+      } else {
+        onEvent({ ...ev, type: name })
+      }
+    }
+    if (eof) break
+  }
+  if (!doneData) {
+    throw new Error('The AI service ended the connection without a final answer.')
+  }
+  return doneData
 }
 
 export function useChat(
@@ -91,6 +164,8 @@ export function useChat(
   const isLoading = ref(false)
   const isApplying = ref(false)
   const panelError = ref<string | null>(null)
+  /** Live tool-loop progress (folder chat, streamed from Taki) */
+  const folderProgress = ref<FolderProgress | null>(null)
   const fileTruncated = ref(false)
 
   // Ephemeral public link share for folder chat (same mechanism as the job
@@ -520,10 +595,14 @@ export function useChat(
         }
       }
 
+      folderProgress.value = { count: 0, thinking: true, startedAt: Date.now() }
       const res = await fetch(`${window.location.origin}/chat/ask`, {
         method: 'POST',
         headers: buildHeaders(),
-        signal: AbortSignal.timeout(300_000),
+        // Folder chat legitimately takes several minutes (many files, OCR on
+        // scans). The SSE progress events keep the UI alive; this ceiling is
+        // only a safety net against a hung connection.
+        signal: AbortSignal.timeout(900_000),
         body: JSON.stringify({
           // Empty when no local endpoint config exists — Taki falls back to
           // its configured default model.
@@ -532,7 +611,8 @@ export function useChat(
           context: {
             share: { token: share.token, password: share.password },
             folder_name: folderName
-          }
+          },
+          stream: true
         })
       })
 
@@ -540,11 +620,28 @@ export function useChat(
         throw new Error(aiErrorMessage(res.status))
       }
 
-      const data = (await res.json()) as {
-        answer?: string
-        tool_trace?: ToolTraceEntry[]
-        iterations?: number
-        error?: string
+      const contentType = res.headers.get('content-type') ?? ''
+      let data: ChatAskData
+      if (contentType.includes('text/event-stream') && res.body) {
+        data = await readChatStream(res.body, (ev) => {
+          const p = folderProgress.value
+          if (!p) return
+          if (ev.type === 'tool') {
+            const path = (ev.path as string) || ''
+            const tool = (ev.tool as string) || ''
+            folderProgress.value = {
+              ...p,
+              count: typeof ev.index === 'number' ? ev.index : p.count,
+              current: tool === 'list_directory' ? path || $gettext('folder contents') : path || tool,
+              thinking: false
+            }
+          } else if (ev.type === 'phase') {
+            folderProgress.value = { ...p, current: undefined, thinking: true }
+          }
+        })
+      } else {
+        // Older Taki without stream support → final JSON answer
+        data = (await res.json()) as ChatAskData
       }
       if (data.error) {
         throw new Error(data.error)
@@ -579,6 +676,7 @@ export function useChat(
       }
     } finally {
       isLoading.value = false
+      folderProgress.value = null
     }
   }
 
@@ -663,6 +761,7 @@ export function useChat(
     isLoading,
     isApplying,
     panelError,
+    folderProgress,
     sendMessage,
     applyEdit,
     discardEdit,

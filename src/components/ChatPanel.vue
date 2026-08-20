@@ -135,7 +135,18 @@
 
         <div v-if="isLoading" class="chat-message chat-message--assistant oc-mb-xs">
           <div class="chat-bubble chat-bubble--assistant chat-bubble--loading">
-            {{ $gettext('Thinking…') }}
+            <template v-if="isFolder && folderProgress">
+              <template v-if="folderProgress.thinking">
+                {{ $gettext('Thinking…') }}
+              </template>
+              <template v-else>
+                {{ $gettext('Working on…') }} {{ folderProgress.current }}
+              </template>
+              <span v-if="folderProgress.count > 0" class="loading-meta">
+                ({{ folderProgress.count }} {{ $gettext('steps') }})
+              </span>
+            </template>
+            <template v-else>{{ $gettext('Thinking…') }}</template>
           </div>
         </div>
       </div>
@@ -272,6 +283,7 @@ const {
   isLoading,
   isApplying,
   panelError,
+  folderProgress,
   sendMessage,
   applyEdit,
   discardEdit,
@@ -498,6 +510,12 @@ onMounted(() => {
 .chat-bubble--loading {
   color: var(--oc-color-text-muted, #6f6f6f);
   font-style: italic;
+  overflow-wrap: anywhere;
+}
+
+.loading-meta {
+  opacity: 0.7;
+  font-style: normal;
 }
 
 .chat-content {
