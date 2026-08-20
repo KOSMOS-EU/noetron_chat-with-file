@@ -1,8 +1,13 @@
-import { ref, watch, type Ref } from 'vue'
+import { ref, computed, watch, onBeforeUnmount, type Ref } from 'vue'
 import * as pdfjs from 'pdfjs-dist'
 import * as pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs'
 import type { TextItem } from 'pdfjs-dist/types/src/display/api'
-import { useAuthStore, useClientService, useSpacesStore } from '@opencloud-eu/web-pkg'
+import {
+  useAuthStore,
+  useClientService,
+  useSpacesStore,
+  usePasswordPolicyService
+} from '@opencloud-eu/web-pkg'
 import { useGettext } from 'vue3-gettext'
 import { useLlm, type LlmConfig, type LlmModelOption, type LlmStatus } from './useLlm'
 
@@ -18,6 +23,18 @@ export interface ChatResource {
   extension?: string
   storageId?: string
   path?: string
+  isFolder?: boolean
+}
+
+/** One tool execution performed by the Taki tool loop (folder chat) */
+export interface ToolTraceEntry {
+  tool: string
+  path?: string
+  method?: string
+  chars?: number
+  truncated?: boolean
+  error?: string
+  ms?: number
 }
 
 export interface ChatMessage {
@@ -29,6 +46,8 @@ export interface ChatMessage {
   originalContent?: string
   /** True once the edit has been written to the file */
   applied?: boolean
+  /** Tool executions performed for this answer (folder chat only) */
+  toolTrace?: ToolTraceEntry[]
 }
 
 export interface UseChatResult {
@@ -39,6 +58,8 @@ export interface UseChatResult {
   thinking: Ref<boolean>
   /** True when the file text exceeds MAX_CONTENT_CHARS (only the beginning reaches the model) */
   fileTruncated: Ref<boolean>
+  /** True when the open resource is a folder (tool-based folder chat) */
+  isFolder: Ref<boolean>
   messages: Ref<ChatMessage[]>
   isLoading: Ref<boolean>
   isApplying: Ref<boolean>
@@ -60,6 +81,10 @@ export function useChat(
   const authStore = useAuthStore()
   const clientService = useClientService()
   const spacesStore = useSpacesStore()
+  const passwordPolicyService = usePasswordPolicyService()
+  const graphClient = clientService.graphAuthenticated
+
+  const isFolder = computed(() => resource.value?.isFolder === true)
 
   const resourceId = resource.value?.id ?? ''
   const messages = ref<ChatMessage[]>(messageCache.get(resourceId) ?? [])
@@ -67,6 +92,88 @@ export function useChat(
   const isApplying = ref(false)
   const panelError = ref<string | null>(null)
   const fileTruncated = ref(false)
+
+  // Ephemeral public link share for folder chat (same mechanism as the job
+  // pipelines). Taki reads the folder through this share only — it never
+  // sees the user token. In-memory per panel instance; the 1h server-side
+  // expiry is the backstop if the cleanup below is missed.
+  interface FolderShare {
+    permId: string
+    driveId: string
+    itemId: string
+    token: string
+    password: string
+    createdAt: number
+  }
+  let folderShare: FolderShare | null = null
+  // Recreate before the 1h server-side expiry instead of after failing on it
+  const SHARE_TTL_MS = 50 * 60 * 1000
+
+  async function releaseFolderShare(): Promise<void> {
+    if (!folderShare) {
+      return
+    }
+    const { driveId, itemId, permId } = folderShare
+    folderShare = null
+    try {
+      await graphClient.permissions.deletePermission(driveId, itemId, permId)
+    } catch {
+      // share may already be expired — the 1h expiry is the backstop
+    }
+  }
+
+  async function ensureFolderShare(): Promise<FolderShare> {
+    const res = resource.value
+    if (!res?.id || !res?.storageId) {
+      throw new Error($gettext('Folder location not available'))
+    }
+    if (folderShare && Date.now() - folderShare.createdAt < SHARE_TTL_MS) {
+      return folderShare
+    }
+    await releaseFolderShare()
+
+    const space = spacesStore.getSpace(res.storageId)
+    if (!space) {
+      throw new Error($gettext('Could not resolve folder space'))
+    }
+    // The root of a personal space cannot be public-linked
+    if ((space as { driveType?: string }).driveType === 'personal' && res.path === '/') {
+      throw new Error(
+        $gettext(
+          'The root of a personal space cannot be shared for chat. Select a folder inside it instead.'
+        )
+      )
+    }
+
+    const password = passwordPolicyService.generatePassword()
+    const link = await graphClient.permissions.createLink(space.id, res.id, {
+      type: 'view',
+      password,
+      expirationDateTime: new Date(Date.now() + 3600 * 1000).toISOString()
+    })
+    const webUrl = link.webUrl
+    if (!webUrl) {
+      throw new Error($gettext('Could not create the temporary folder link'))
+    }
+    const token = new URL(webUrl).pathname.split('/').pop() ?? ''
+    if (!token) {
+      throw new Error($gettext('Could not create the temporary folder link'))
+    }
+
+    folderShare = {
+      permId: link.id,
+      driveId: space.id,
+      itemId: res.id,
+      token,
+      password,
+      createdAt: Date.now()
+    }
+    return folderShare
+  }
+
+  onBeforeUnmount(() => {
+    void releaseFolderShare()
+  })
 
   watch(messages, (msgs) => {
     const id = resource.value?.id
@@ -184,11 +291,12 @@ export function useChat(
         cachedFileText = null
         cachedResourceId = undefined
         cachedFileEtag = null
+        void releaseFolderShare()
       }
       if (newId) {
         messages.value = messageCache.get(newId) ?? []
         fileTruncated.value = false
-        if (cachedFileText === null) {
+        if (cachedFileText === null && !isFolder.value) {
           prefetchFileText()
         }
       }
@@ -217,7 +325,16 @@ export function useChat(
   }
 
   async function sendMessage(text: string, mode: 'chat' | 'edit'): Promise<void> {
-    if (status.value === 'unconfigured' || isLoading.value) {
+    if (isLoading.value) {
+      return
+    }
+    if (isFolder.value) {
+      // Folder chat runs against Taki's /chat/ask, which has its own default
+      // model — the local endpoint config is not required for it.
+      await sendFolderMessage(text)
+      return
+    }
+    if (status.value === 'unconfigured') {
       return
     }
 
@@ -376,6 +493,95 @@ export function useChat(
     }
   }
 
+  // Folder chat: the model fetches folder content itself via tools, executed
+  // server-side in Taki against an ephemeral public link share. No file text
+  // ever passes through the client.
+  async function sendFolderMessage(text: string): Promise<void> {
+    const userMessage: ChatMessage = { role: 'user', content: text }
+    messages.value = [...messages.value, userMessage]
+    isLoading.value = true
+    panelError.value = null
+
+    try {
+      const share = await ensureFolderShare()
+      const folderName = resource.value?.name ?? ''
+
+      // Taki builds the folder context into its own system prompt; we send the
+      // conversation history. On the first exchange, nudge the model to
+      // explore the folder before answering.
+      const requestMessages = messages.value.map((m) => ({ role: m.role, content: m.content }))
+      if (!requestMessages.some((m) => m.role === 'assistant')) {
+        requestMessages[0] = {
+          ...requestMessages[0],
+          content:
+            $gettext(
+              'First explore this folder with your tools (list its contents, read the relevant files and images), then answer:'
+            ) + '\n' + requestMessages[0].content
+        }
+      }
+
+      const res = await fetch(`${window.location.origin}/chat/ask`, {
+        method: 'POST',
+        headers: buildHeaders(),
+        signal: AbortSignal.timeout(300_000),
+        body: JSON.stringify({
+          // Empty when no local endpoint config exists — Taki falls back to
+          // its configured default model.
+          model: selectedModel.value?.model ?? '',
+          messages: requestMessages,
+          context: {
+            share: { token: share.token, password: share.password },
+            folder_name: folderName
+          }
+        })
+      })
+
+      if (!res.ok) {
+        throw new Error(aiErrorMessage(res.status))
+      }
+
+      const data = (await res.json()) as {
+        answer?: string
+        tool_trace?: ToolTraceEntry[]
+        iterations?: number
+        error?: string
+      }
+      if (data.error) {
+        throw new Error(data.error)
+      }
+
+      // Taki reports an expired/denied share as tool errors — drop the share
+      // so the next send transparently recreates it.
+      const trace = data.tool_trace ?? []
+      if (trace.some((t) => /abgelaufen|verweigert|expired|denied/i.test(t.error ?? ''))) {
+        await releaseFolderShare()
+        throw new Error(
+          $gettext('The temporary folder link has expired. Please send your message again.')
+        )
+      }
+
+      const reply = (data.answer ?? '').trim()
+      messages.value = [...messages.value, { role: 'assistant', content: reply, toolTrace: trace }]
+    } catch (err) {
+      // Roll back the optimistic user message so the user can retry cleanly
+      messages.value = messages.value.slice(0, -1)
+      if (err instanceof DOMException && err.name === 'TimeoutError') {
+        panelError.value = $gettext(
+          'The AI service did not respond in time. Please try again later.'
+        )
+      } else if (err instanceof TypeError) {
+        panelError.value = $gettext(
+          'Could not reach the AI service. Check your network connection and try again.'
+        )
+      } else {
+        panelError.value =
+          err instanceof Error ? err.message : $gettext('Something went wrong. Please try again.')
+      }
+    } finally {
+      isLoading.value = false
+    }
+  }
+
   async function applyEdit(proposal: string, index: number): Promise<void> {
     const res = resource.value
     if (!res?.storageId || !res?.path) {
@@ -452,6 +658,7 @@ export function useChat(
     selectedModelId,
     thinking,
     fileTruncated,
+    isFolder,
     messages,
     isLoading,
     isApplying,

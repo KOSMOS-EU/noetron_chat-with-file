@@ -53,8 +53,9 @@ export default defineWebApplication({
           name: APP_ID,
           icon: 'message',
           title: () => $pgettext('Sidebar panel tab title', 'Chat'),
-          isVisible: ({ items }: { items?: Array<{ extension?: string }> }) =>
-            items?.length === 1 && isSupportedFile(items[0], SUPPORTED_EXTS),
+          isVisible: ({ items }: { items?: Array<{ extension?: string; isFolder?: boolean }> }) =>
+            items?.length === 1 &&
+            (isSupportedFile(items[0], SUPPORTED_EXTS) || items[0]?.isFolder === true),
           component: ChatPanel,
           componentAttrs: ({ items }: { items?: Resource[] }) => ({
             resource: items?.[0] ?? null,
@@ -72,6 +73,22 @@ export default defineWebApplication({
           label: () => $pgettext('Context menu action to open file chat', 'Chat with file'),
           isVisible: ({ resources }: { resources?: Array<{ extension?: string }> }) =>
             resources?.length === 1 && isSupportedFile(resources[0], SUPPORTED_EXTS),
+          handler: ({ resources }: FileActionOptions) => {
+            resourcesStore.setSelection(resources.map(({ id }) => id))
+            sideBarStore.openSideBarPanel(APP_ID)
+          }
+        }
+      } as ActionExtension,
+      {
+        id: `${APP_ID}.folder-action`,
+        type: 'action',
+        extensionPointIds: ['global.files.context-actions'],
+        action: {
+          name: `${APP_ID}-folder-chat`,
+          icon: 'folder',
+          label: () => $pgettext('Context menu action to open folder chat', 'Chat with folder'),
+          isVisible: ({ resources }: { resources?: Array<{ isFolder?: boolean }> }) =>
+            resources?.length === 1 && resources[0]?.isFolder === true,
           handler: ({ resources }: FileActionOptions) => {
             resourcesStore.setSelection(resources.map(({ id }) => id))
             sideBarStore.openSideBarPanel(APP_ID)

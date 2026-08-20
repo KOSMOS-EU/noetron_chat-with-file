@@ -1,7 +1,7 @@
 <template>
   <div data-testid="chat-with-file-panel" class="chat-panel">
-    <!-- Unconfigured placeholder -->
-    <div v-if="status === 'unconfigured'" class="chat-placeholder">
+    <!-- Unconfigured placeholder (folder chat does not need the local endpoint config) -->
+    <div v-if="status === 'unconfigured' && !isFolder" class="chat-placeholder">
       {{
         $gettext(
           'File chat is not set up yet. Contact your administrator to configure an AI endpoint.'
@@ -13,7 +13,10 @@
       <!-- Message history -->
       <div ref="messagesEl" class="chat-messages">
         <div v-if="messages.length === 0 && !panelError" class="chat-placeholder">
-          <template v-if="mode === 'edit'">
+          <template v-if="isFolder">
+            {{ $gettext('Ask a question about this folder.') }}
+          </template>
+          <template v-else-if="mode === 'edit'">
             {{ $gettext('Describe the change you want to make to this file.') }}
           </template>
           <template v-else>
@@ -33,6 +36,32 @@
               :class="message.role === 'user' ? 'chat-bubble--user' : 'chat-bubble--assistant'"
             >
               <pre class="chat-content">{{ message.content }}</pre>
+              <template v-if="message.toolTrace && message.toolTrace.length > 0">
+                <button class="trace-toggle" @click="toggleTrace(index)">
+                  <span class="diff-toggle-icon">{{ isTraceExpanded(index) ? '▾' : '▸' }}</span>
+                  {{
+                    isTraceExpanded(index)
+                      ? $pgettext('Tool-trace toggle label', 'Hide file access')
+                      : `${$pgettext('Tool-trace toggle label', 'File access')} (${message.toolTrace.length})`
+                  }}
+                </button>
+                <div v-if="isTraceExpanded(index)" class="trace-list">
+                  <div
+                    v-for="(entry, ei) in message.toolTrace"
+                    :key="ei"
+                    class="trace-entry"
+                  >
+                    <span class="trace-tool">{{ entry.tool }}</span>
+                    <span v-if="entry.path" class="trace-path">{{ entry.path }}</span>
+                    <span v-if="entry.truncated" class="trace-flag trace-flag--warn">
+                      {{ $pgettext('Tool-trace flag: file was truncated', 'truncated') }}
+                    </span>
+                    <span v-if="entry.error" class="trace-flag trace-flag--error">
+                      {{ entry.error }}
+                    </span>
+                  </div>
+                </div>
+              </template>
               <template v-if="message.editProposal">
                 <div class="chat-diff oc-mt-xs">
                   <button
@@ -133,9 +162,11 @@
           class="chat-textarea"
           :aria-label="$gettext('Chat message input')"
           :placeholder="
-            mode === 'edit'
-              ? $gettext('Describe the change… (Enter to send)')
-              : $gettext('Ask about this file… (Enter to send)')
+            isFolder
+              ? $gettext('Ask about this folder… (Enter to send)')
+              : mode === 'edit'
+                ? $gettext('Describe the change… (Enter to send)')
+                : $gettext('Ask about this file… (Enter to send)')
           "
           :disabled="isLoading"
           rows="3"
@@ -144,8 +175,10 @@
           @keydown.enter.exact.prevent="submit"
         />
         <div class="chat-input-footer">
-          <!-- Single Edit toggle: off = chat, on = edit, disabled = file not editable (e.g. PDF) -->
+          <!-- Single Edit toggle: off = chat, on = edit, disabled = file not editable (e.g. PDF).
+               Hidden in folder mode — there is no single file to edit. -->
           <button
+            v-if="!isFolder"
             class="mode-pill"
             :class="{ 'mode-pill--active': mode === 'edit' }"
             :disabled="!isEditable"
@@ -232,6 +265,7 @@ const {
   selectedModelId,
   thinking,
   fileTruncated,
+  isFolder,
   messages,
   isLoading,
   isApplying,
@@ -328,6 +362,19 @@ function toggleDiff(index: number): void {
     : [...expandedDiffs.value, index]
 }
 
+// Tool-trace expansion (folder chat: which files the model accessed)
+const expandedTraces = ref<number[]>([])
+
+function isTraceExpanded(index: number): boolean {
+  return expandedTraces.value.includes(index)
+}
+
+function toggleTrace(index: number): void {
+  expandedTraces.value = isTraceExpanded(index)
+    ? expandedTraces.value.filter((i) => i !== index)
+    : [...expandedTraces.value, index]
+}
+
 function diffPrefix(type: FlatLine['type']): string {
   if (type === 'added') return '+ '
   if (type === 'removed') return '- '
@@ -361,6 +408,7 @@ watch(
       mode.value = 'chat'
       diffCache.clear()
       expandedDiffHeights.value = []
+      expandedTraces.value = []
     }
   }
 )
@@ -545,6 +593,66 @@ onMounted(() => {
 
 .diff-toggle-icon {
   font-size: 0.7rem;
+}
+
+/* Tool-trace (folder chat): which files the model accessed */
+.trace-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-family: inherit;
+  color: var(--oc-color-text-muted, #6f6f6f);
+  padding: 0;
+  margin-top: 6px;
+}
+
+.trace-toggle:hover {
+  color: var(--oc-color-text-default, inherit);
+}
+
+.trace-list {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.trace-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.trace-tool {
+  color: var(--oc-color-swatch-primary-default, #0d6efd);
+  flex-shrink: 0;
+}
+
+.trace-path {
+  font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trace-flag {
+  font-style: italic;
+  color: var(--oc-color-text-muted, #6f6f6f);
+  flex-shrink: 0;
+}
+
+.trace-flag--warn {
+  color: #9a6700;
+}
+
+.trace-flag--error {
+  color: var(--oc-color-danger, #c00);
 }
 
 /* Unified input card */
