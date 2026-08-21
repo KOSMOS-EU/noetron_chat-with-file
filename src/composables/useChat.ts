@@ -319,6 +319,30 @@ export function useChat(
     return fetch(url, { ...init, headers })
   }
 
+  // WebDAV calls use the IDP token from call time; after a long session the
+  // token can be stale → 401/403. Same pattern as fetchWithAuthRetry: silent
+  // renewal once, then retry with the fresh token.
+  async function webdavWithAuthRetry<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn()
+    } catch (err) {
+      const status = (err as { statusCode?: number })?.statusCode
+      if (status !== 401 && status !== 403) {
+        throw err
+      }
+      const previousToken = authStore.accessToken
+      try {
+        await authService.signinSilent()
+      } catch {
+        throw err
+      }
+      if (authStore.accessToken === previousToken) {
+        throw err
+      }
+      return fn()
+    }
+  }
+
   async function extractPdfText(buffer: ArrayBuffer): Promise<string> {
     // Run the PDF.js worker in the main thread (fake worker mode) to avoid
     // Worker/CSP restrictions — same technique used by the AI summarizer.
@@ -815,18 +839,22 @@ export function useChat(
     panelError.value = null
     try {
       try {
-        await clientService.webdav.createFolder(space, { path: 'Chats', fetchFolder: false })
+        await webdavWithAuthRetry(() =>
+          clientService.webdav.createFolder(space, { path: 'Chats', fetchFolder: false })
+        )
       } catch (err) {
         // MKCOL on an existing collection answers 405 — that is the success case here
         if ((err as { statusCode?: number })?.statusCode !== 405) {
           throw err
         }
       }
-      await clientService.webdav.putFileContents(space, {
-        path: `Chats/${date}_${time}_${chatId}.md`,
-        content: header + msg.content,
-        overwrite: false
-      })
+      await webdavWithAuthRetry(() =>
+        clientService.webdav.putFileContents(space, {
+          path: `Chats/${date}_${time}_${chatId}.md`,
+          content: header + msg.content,
+          overwrite: false
+        })
+      )
       savedIndices.value = [...savedIndices.value, index]
       setTimeout(() => {
         savedIndices.value = savedIndices.value.filter((i) => i !== index)
