@@ -9,12 +9,15 @@
     "build": "vite build"
   },
   "dependencies": {
+    "dompurify": "^3.4.13",
+    "markdown-it": "^14.3.0",
     "pdfjs-dist": "^6.2.108",
     "vue3-gettext": "^2.4.0"
   },
   "devDependencies": {
     "@opencloud-eu/extension-sdk": "7.0.1",
     "@opencloud-eu/web-client": "^4.0.0",
+    "@types/markdown-it": "^14.1.2",
     "@opencloud-eu/web-pkg": "^4.0.0",
     "typescript": "5.9.3",
     "vite": "^8.1.4",

@@ -72,16 +72,23 @@ export interface UseChatResult {
   fileTruncated: Ref<boolean>
   /** True when the open resource is a folder (tool-based folder chat) */
   isFolder: Ref<boolean>
+  /** Unique identifier of this chat session (stable across clearChat) */
+  chatId: string
   messages: Ref<ChatMessage[]>
   isLoading: Ref<boolean>
   isApplying: Ref<boolean>
   panelError: Ref<string | null>
   /** Live tool-loop progress (folder chat only, null when idle) */
   folderProgress: Ref<FolderProgress | null>
+  /** Index of the message currently being saved to the cloud (null when idle) */
+  savingIndex: Ref<number | null>
+  /** Indices of messages that were just saved (transient UI feedback) */
+  savedIndices: Ref<number[]>
   sendMessage: (text: string, mode: 'chat' | 'edit') => Promise<void>
   applyEdit: (proposal: string, index: number) => Promise<void>
   discardEdit: (index: number) => void
   clearChat: () => void
+  saveAnswer: (index: number) => Promise<void>
   ensureReady: () => void
 }
 
@@ -161,6 +168,10 @@ export function useChat(
 
   const isFolder = computed(() => resource.value?.isFolder === true)
 
+  // One unique chat identifier per panel session (survives clearChat, new
+  // on every panel mount) — used as the chat key in saved .md filenames.
+  const chatId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+
   const resourceId = resource.value?.id ?? ''
   const messages = ref<ChatMessage[]>(messageCache.get(resourceId) ?? [])
   const isLoading = ref(false)
@@ -169,6 +180,8 @@ export function useChat(
   /** Live tool-loop progress (folder chat, streamed from Taki) */
   const folderProgress = ref<FolderProgress | null>(null)
   const fileTruncated = ref(false)
+  const savingIndex = ref<number | null>(null)
+  const savedIndices = ref<number[]>([])
 
   // Ephemeral public link share for folder chat (same mechanism as the job
   // pipelines). Taki reads the folder through this share only — it never
@@ -767,6 +780,71 @@ export function useChat(
     })
   }
 
+  /**
+   * Save one assistant answer as Markdown into the user's personal space
+   * (folder "Chats", created on demand): <YYYY-MM-DD_HH-mm-ss>_<chatId>.md
+   */
+  async function saveAnswer(index: number): Promise<void> {
+    const msg = messages.value[index]
+    if (!msg || msg.role !== 'assistant' || savingIndex.value !== null) {
+      return
+    }
+    const space = spacesStore.spaces.find((s) => s.driveType === 'personal')
+    if (!space) {
+      panelError.value = $gettext('Personal space not available')
+      return
+    }
+
+    const now = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+    const time = `${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`
+    const header = [
+      `# ${$gettext('Chat response')}`,
+      '',
+      `- ${$gettext('Chat')}: ${chatId}`,
+      `- ${$gettext('Date')}: ${date} ${time.replace(/-/g, ':')}`,
+      ...(selectedModel.value ? [`- ${$gettext('Model')}: ${selectedModel.value.label}`] : []),
+      ...(resource.value?.name ? [`- ${$gettext('Source')}: ${resource.value.name}`] : []),
+      '',
+      '---',
+      ''
+    ].join('\n')
+
+    savingIndex.value = index
+    panelError.value = null
+    try {
+      try {
+        await clientService.webdav.createFolder(space, { path: 'Chats', fetchFolder: false })
+      } catch (err) {
+        // MKCOL on an existing collection answers 405 — that is the success case here
+        if ((err as { statusCode?: number })?.statusCode !== 405) {
+          throw err
+        }
+      }
+      await clientService.webdav.putFileContents(space, {
+        path: `Chats/${date}_${time}_${chatId}.md`,
+        content: header + msg.content,
+        overwrite: false
+      })
+      savedIndices.value = [...savedIndices.value, index]
+      setTimeout(() => {
+        savedIndices.value = savedIndices.value.filter((i) => i !== index)
+      }, 3000)
+    } catch (err) {
+      const status = (err as { statusCode?: number })?.statusCode
+      if (status === 412 || status === 409) {
+        panelError.value = $gettext(
+          'A file with the same name already exists. Try again in a moment.'
+        )
+      } else {
+        panelError.value = $gettext('Could not save the response. Please try again.')
+      }
+    } finally {
+      savingIndex.value = null
+    }
+  }
+
   function clearChat(): void {
     const id = resource.value?.id
     if (id) {
@@ -787,13 +865,17 @@ export function useChat(
     thinking,
     fileTruncated,
     isFolder,
+    chatId,
     messages,
     isLoading,
     isApplying,
     panelError,
     folderProgress,
+    savingIndex,
+    savedIndices,
     sendMessage,
     applyEdit,
+    saveAnswer,
     discardEdit,
     clearChat,
     ensureReady

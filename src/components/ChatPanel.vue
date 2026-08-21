@@ -35,7 +35,87 @@
               class="chat-bubble"
               :class="message.role === 'user' ? 'chat-bubble--user' : 'chat-bubble--assistant'"
             >
-              <pre class="chat-content">{{ message.content }}</pre>
+              <pre v-if="message.role === 'user'" class="chat-content">{{
+                message.content
+              }}</pre>
+              <div
+                v-else
+                class="chat-content chat-content--md"
+                v-html="renderedHtml(index)"
+              ></div>
+              <!-- Copy / Save actions (assistant answers only) -->
+              <div v-if="message.role === 'assistant'" class="chat-actions">
+                <span
+                  v-if="savedIndices.includes(index)"
+                  class="chat-saved-label"
+                  :aria-label="$pgettext('Save button success state', 'Saved')"
+                >
+                  {{ $pgettext('Save button success state', 'Saved') }}
+                </span>
+                <button
+                  class="chat-action-btn"
+                  :aria-label="
+                    copiedIndex === index
+                      ? $pgettext('Copy button success state', 'Copied to clipboard')
+                      : $pgettext('Copy button label', 'Copy response to clipboard')
+                  "
+                  :title="
+                    copiedIndex === index
+                      ? $pgettext('Copy button success state', 'Copied to clipboard')
+                      : $pgettext('Copy button label', 'Copy response to clipboard')
+                  "
+                  :disabled="copiedIndex === index"
+                  @click="copyMessage(index)"
+                >
+                  <!-- check (copied) -->
+                  <svg
+                    v-if="copiedIndex === index"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                  </svg>
+                  <!-- content_copy -->
+                  <svg
+                    v-else
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"
+                    />
+                  </svg>
+                </button>
+                <button
+                  class="chat-action-btn"
+                  :aria-label="$pgettext('Save button label', 'Save response as Markdown file')"
+                  :title="$pgettext('Save button label', 'Save response as Markdown file')"
+                  :disabled="savingIndex === index"
+                  @click="saveAnswer(index)"
+                >
+                  <!-- save (floppy) -->
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="15"
+                    height="15"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"
+                    />
+                  </svg>
+                </button>
+              </div>
               <template v-if="message.toolTrace && message.toolTrace.length > 0">
                 <button class="trace-toggle" @click="toggleTrace(index)">
                   <span class="diff-toggle-icon">{{ isTraceExpanded(index) ? '▾' : '▸' }}</span>
@@ -256,6 +336,7 @@
 import { ref, computed, toRef, watch, nextTick, onMounted } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import { useChat, TEXT_EXTENSIONS, type ChatResource } from '../composables/useChat'
+import { renderMarkdown } from '../utils/markdown'
 import type { LlmConfig, LlmModelOption } from '../composables/useLlm'
 import { computeDiff } from '../utils/diff'
 import type { DiffLineType } from '../utils/diff'
@@ -284,12 +365,54 @@ const {
   isApplying,
   panelError,
   folderProgress,
+  savingIndex,
+  savedIndices,
   sendMessage,
   applyEdit,
+  saveAnswer,
   discardEdit,
   clearChat,
   ensureReady
 } = useChat(props.llmConfig ?? null, toRef(props, 'resource'))
+
+// Markdown rendering for assistant answers (raw HTML, sanitized — see
+// utils/markdown.ts). Keyed by content so the cache stays valid across
+// clearChat() and resource switches.
+const renderedHtmlCache = new Map<string, string>()
+function renderedHtml(index: number): string {
+  const content = messages.value[index]?.content ?? ''
+  const cached = renderedHtmlCache.get(content)
+  if (cached !== undefined) {
+    return cached
+  }
+  const html = renderMarkdown(content)
+  renderedHtmlCache.set(content, html)
+  return html
+}
+
+// Copy feedback: index of the message just copied (transient, 2 s)
+const copiedIndex = ref<number | null>(null)
+let copyTimer: ReturnType<typeof setTimeout> | undefined
+
+async function copyMessage(index: number): Promise<void> {
+  const msg = messages.value[index]
+  if (!msg || copiedIndex.value === index) {
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(msg.content)
+  } catch {
+    panelError.value = $gettext('Could not copy to clipboard.')
+    return
+  }
+  copiedIndex.value = index
+  if (copyTimer) {
+    clearTimeout(copyTimer)
+  }
+  copyTimer = setTimeout(() => {
+    copiedIndex.value = null
+  }, 2000)
+}
 
 // DEBUG: temporarily trace model selection (remove once the single-option issue is resolved)
 function reduceModelOption(option: LlmModelOption): string {
@@ -524,6 +647,122 @@ onMounted(() => {
   word-break: break-word;
   font-family: inherit;
   font-size: inherit;
+}
+
+/* Rendered Markdown (assistant answers) — compact typography, theme vars */
+.chat-content--md {
+  white-space: normal;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.chat-content--md > :first-child {
+  margin-top: 0;
+}
+.chat-content--md > :last-child {
+  margin-bottom: 0;
+}
+.chat-content--md p {
+  margin: 0 0 0.5em;
+}
+.chat-content--md ul,
+.chat-content--md ol {
+  margin: 0 0 0.5em;
+  padding-left: 1.3em;
+}
+.chat-content--md li {
+  margin: 0.15em 0;
+}
+.chat-content--md code {
+  font-family: var(--oc-font-family-mono, monospace);
+  font-size: 0.9em;
+  background: var(--oc-color-background-muted, #f4f4f4);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+.chat-content--md pre {
+  background: var(--oc-color-background-muted, #f4f4f4);
+  border: 1px solid var(--oc-color-input-border, #ccc);
+  border-radius: 6px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  margin: 0 0 0.5em;
+}
+.chat-content--md pre code {
+  background: none;
+  padding: 0;
+}
+.chat-content--md blockquote {
+  margin: 0.5em 0;
+  padding-left: 10px;
+  border-left: 3px solid var(--oc-color-input-border, #ccc);
+  color: var(--oc-color-text-muted, #6f6f6f);
+}
+.chat-content--md h1,
+.chat-content--md h2,
+.chat-content--md h3,
+.chat-content--md h4 {
+  font-size: 1.02em;
+  font-weight: 600;
+  margin: 0.7em 0 0.3em;
+}
+.chat-content--md table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.chat-content--md th,
+.chat-content--md td {
+  border: 1px solid var(--oc-color-input-border, #ccc);
+  padding: 3px 8px;
+  font-size: 0.9em;
+}
+.chat-content--md a {
+  color: var(--oc-color-swatch-primary-default, #0d6efd);
+  text-decoration: underline;
+}
+.chat-content--md hr {
+  border: none;
+  border-top: 1px solid var(--oc-color-input-border, #ccc);
+  margin: 0.6em 0;
+}
+.chat-content--md img {
+  max-width: 100%;
+}
+
+/* Copy / Save action row under assistant answers */
+.chat-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 4px;
+}
+.chat-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--oc-color-text-muted, #6f6f6f);
+  cursor: pointer;
+  padding: 0;
+}
+.chat-action-btn:hover:not(:disabled) {
+  background: var(--oc-color-background-muted, #f4f4f4);
+  color: var(--oc-color-text-default, inherit);
+}
+.chat-action-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.chat-saved-label {
+  font-size: 0.72rem;
+  color: #1a7f37;
 }
 
 .chat-apply-row {
