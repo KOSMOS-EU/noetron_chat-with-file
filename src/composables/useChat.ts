@@ -4,6 +4,7 @@ import * as pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs'
 import type { TextItem } from 'pdfjs-dist/types/src/display/api'
 import {
   useAuthStore,
+  useAuthService,
   useClientService,
   useSpacesStore,
   usePasswordPolicyService
@@ -152,6 +153,7 @@ export function useChat(
   const { status, config, models, selectedModelId, selectedModel, thinking, ensureReady } =
     useLlm(llmConfig)
   const authStore = useAuthStore()
+  const authService = useAuthService()
   const clientService = useClientService()
   const spacesStore = useSpacesStore()
   const passwordPolicyService = usePasswordPolicyService()
@@ -275,6 +277,33 @@ export function useChat(
       h['Authorization'] = `Bearer ${token}`
     }
     return h
+  }
+
+  // The IDP access token is short-lived (5 min default) and normally kept
+  // fresh by the host app's token timer. If that renewal chain breaks (e.g.
+  // the tab was suspended while the user stepped away), a request can arrive
+  // with a stale token and get a 401. Try a silent renewal once and retry
+  // with the fresh token before surfacing an error.
+  async function fetchWithAuthRetry(url: string, init: RequestInit): Promise<Response> {
+    const res = await fetch(url, init)
+    if (res.status !== 401 && res.status !== 403) {
+      return res
+    }
+    const previousToken = authStore.accessToken
+    try {
+      await authService.signinSilent()
+    } catch {
+      // Renewal failed (e.g. the IDP session is gone) — fall through with
+      // the original 401/403 response.
+    }
+    if (authStore.accessToken === previousToken) {
+      return res
+    }
+    const headers = new Headers(init.headers)
+    if (authStore.accessToken) {
+      headers.set('Authorization', `Bearer ${authStore.accessToken}`)
+    }
+    return fetch(url, { ...init, headers })
   }
 
   async function extractPdfText(buffer: ArrayBuffer): Promise<string> {
@@ -486,7 +515,7 @@ export function useChat(
         ]
       }
 
-      const res = await fetch(`${base}/chat/completions`, {
+      const res = await fetchWithAuthRetry(`${base}/chat/completions`, {
         method: 'POST',
         headers: buildHeaders(),
         // Generous safety-net ceiling, decoupled from the proxy's own (separately
@@ -596,7 +625,7 @@ export function useChat(
       }
 
       folderProgress.value = { count: 0, thinking: true, startedAt: Date.now() }
-      const res = await fetch(`${window.location.origin}/chat/ask`, {
+      const res = await fetchWithAuthRetry(`${window.location.origin}/chat/ask`, {
         method: 'POST',
         headers: buildHeaders(),
         // Folder chat legitimately takes 10–20+ minutes (many LLM iterations
