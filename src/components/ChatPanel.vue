@@ -649,37 +649,39 @@ onMounted(() => {
   font-size: inherit;
 }
 
-/* Rendered Markdown (assistant answers) — compact typography, theme vars */
+/* Rendered Markdown (assistant answers) — compact typography, theme vars.
+   The content comes from v-html, so child selectors need :deep() to escape
+   the scoped-compiler's [data-v] attribute (v-html nodes don't carry it). */
 .chat-content--md {
   white-space: normal;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
-.chat-content--md > :first-child {
+.chat-content--md > :deep(:first-child) {
   margin-top: 0;
 }
-.chat-content--md > :last-child {
+.chat-content--md > :deep(:last-child) {
   margin-bottom: 0;
 }
-.chat-content--md p {
+.chat-content--md :deep(p) {
   margin: 0 0 0.5em;
 }
-.chat-content--md ul,
-.chat-content--md ol {
+.chat-content--md :deep(ul),
+.chat-content--md :deep(ol) {
   margin: 0 0 0.5em;
   padding-left: 1.3em;
 }
-.chat-content--md li {
+.chat-content--md :deep(li) {
   margin: 0.15em 0;
 }
-.chat-content--md code {
+.chat-content--md :deep(code) {
   font-family: var(--oc-font-family-mono, monospace);
   font-size: 0.9em;
   background: var(--oc-color-background-muted, #f4f4f4);
   border-radius: 3px;
   padding: 1px 4px;
 }
-.chat-content--md pre {
+.chat-content--md :deep(pre) {
   background: var(--oc-color-background-muted, #f4f4f4);
   border: 1px solid var(--oc-color-input-border, #ccc);
   border-radius: 6px;
@@ -687,47 +689,47 @@ onMounted(() => {
   overflow-x: auto;
   margin: 0 0 0.5em;
 }
-.chat-content--md pre code {
+.chat-content--md :deep(pre code) {
   background: none;
   padding: 0;
 }
-.chat-content--md blockquote {
+.chat-content--md :deep(blockquote) {
   margin: 0.5em 0;
   padding-left: 10px;
   border-left: 3px solid var(--oc-color-input-border, #ccc);
   color: var(--oc-color-text-muted, #6f6f6f);
 }
-.chat-content--md h1,
-.chat-content--md h2,
-.chat-content--md h3,
-.chat-content--md h4 {
+.chat-content--md :deep(h1),
+.chat-content--md :deep(h2),
+.chat-content--md :deep(h3),
+.chat-content--md :deep(h4) {
   font-size: 1.02em;
   font-weight: 600;
   margin: 0.7em 0 0.3em;
 }
-.chat-content--md table {
+.chat-content--md :deep(table) {
   border-collapse: collapse;
   margin: 0.5em 0;
   display: block;
   overflow-x: auto;
   max-width: 100%;
 }
-.chat-content--md th,
-.chat-content--md td {
+.chat-content--md :deep(th),
+.chat-content--md :deep(td) {
   border: 1px solid var(--oc-color-input-border, #ccc);
   padding: 3px 8px;
   font-size: 0.9em;
 }
-.chat-content--md a {
+.chat-content--md :deep(a) {
   color: var(--oc-color-swatch-primary-default, #0d6efd);
   text-decoration: underline;
 }
-.chat-content--md hr {
+.chat-content--md :deep(hr) {
   border: none;
   border-top: 1px solid var(--oc-color-input-border, #ccc);
   margin: 0.6em 0;
 }
-.chat-content--md img {
+.chat-content--md :deep(img) {
   max-width: 100%;
 }
 
