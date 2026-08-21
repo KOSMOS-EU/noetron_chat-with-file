@@ -1,0 +1,114 @@
+{
+  "de": {
+    "Chat": {
+      "": "Chat",
+      "Sidebar panel tab title": "Chat"
+    },
+    "Chat with file": {
+      "Context menu action to open file chat": "Mit Datei chatten"
+    },
+    "Chat with folder": {
+      "Context menu action to open folder chat": "Mit Ordner chatten"
+    },
+    "Chat with File": {
+      "Chat with File extension name": "Mit Datei chatten"
+    },
+    "Saved": {
+      "Save button success state": "Gespeichert"
+    },
+    "Copied to clipboard": {
+      "Copy button success state": "Kopiert"
+    },
+    "Copy response to clipboard": {
+      "Copy button label": "Antwort in die Zwischenablage kopieren"
+    },
+    "Save response as Markdown file": {
+      "Save button label": "Antwort als Markdown-Datei speichern"
+    },
+    "Hide file access": {
+      "Tool-trace toggle label": "Dateizugriffe ausblenden"
+    },
+    "File access": {
+      "Tool-trace toggle label": "Dateizugriffe"
+    },
+    "truncated": {
+      "Tool-trace flag: file was truncated": "gekürzt"
+    },
+    "Discard": {
+      "Button to discard a proposed file edit": "Verwerfen"
+    },
+    "Saving…": {
+      "Button label while saving a file edit": "Speichert…"
+    },
+    "Apply to file": {
+      "Button to apply a proposed file edit": "In Datei übernehmen"
+    },
+    "Clear chat": {
+      "Button to clear the chat history": "Chat leeren"
+    },
+    "Edit": {
+      "Edit toggle label": "Bearbeiten"
+    },
+    "Think": {
+      "Thinking toggle label": "Nachdenken"
+    },
+    "Model": {
+      "Model selector label": "Modell",
+      "": "Modell"
+    },
+    "Chat response": "Chat-Antwort",
+    "Date": "Datum",
+    "Source": "Quelle",
+    "Ask a question about this folder.": "Stelle eine Frage zu diesem Ordner.",
+    "Describe the change you want to make to this file.": "Beschreibe die Änderung, die du an dieser Datei vornehmen möchtest.",
+    "Ask a question about this file.": "Stelle eine Frage zu dieser Datei.",
+    "Thinking…": "Denkt nach…",
+    "Working on…": "Arbeite daran…",
+    "steps": "Schritte",
+    "This file is longer than 12,000 characters — only the beginning is used.": "Diese Datei ist länger als 12.000 Zeichen — nur der Anfang wird verwendet.",
+    "Chat message input": "Chat-Nachrichteneingabe",
+    "Ask about this folder… (Enter to send)": "Frage zu diesem Ordner… (Enter zum Senden)",
+    "Describe the change… (Enter to send)": "Änderung beschreiben… (Enter zum Senden)",
+    "Ask about this file… (Enter to send)": "Frage zu dieser Datei… (Enter zum Senden)",
+    "Send message": "Nachricht senden",
+    "File chat is not set up yet. Contact your administrator to configure an AI endpoint.": "Der Dateichat ist noch nicht eingerichtet. Bitte deinen Administrator, einen KI-Endpunkt zu konfigurieren.",
+    "Let the model think (chain of thought) before answering. Applies from the next message.": "Lässt das Modell überlegen (Chain of Thought), bevor es antwortet. Wirkt ab der nächsten Nachricht.",
+    "Rewrite the file with the model (diff preview, then apply or discard)": "Die Datei mit dem Modell umschreiben (Vorschau der Änderungen, dann übernehmen oder verwerfen)",
+    "Editing is only available for text files": "Bearbeiten ist nur für Textdateien verfügbar",
+    "Show changes": "Änderungen anzeigen",
+    "Hide changes": "Änderungen ausblenden",
+    "Collapse": "Einklappen",
+    "Expand": "Ausklappen",
+    "No changes detected.": "Keine Änderungen erkannt.",
+    "Edit ready — click \"Apply to file\" to save the changes.": "Bereit — klicke auf „In Datei übernehmen“, um die Änderungen zu speichern.",
+    "Could not copy to clipboard.": "In die Zwischenablage kopieren fehlgeschlagen.",
+    "Folder location not available": "Ordnerort nicht verfügbar",
+    "Could not resolve folder space": "Ordner-Space konnte nicht aufgelöst werden",
+    "The root of a personal space cannot be shared for chat. Select a folder inside it instead.": "Die Wurzel eines persönlichen Spaces kann nicht für den Chat freigegeben werden. Wähle stattdessen einen Ordner darin aus.",
+    "Could not create the temporary folder link": "Der temporäre Ordner-Link konnte nicht erstellt werden",
+    "Resource location not available": "Ressourcenort nicht verfügbar",
+    "Could not resolve file space": "Datei-Space konnte nicht aufgelöst werden",
+    "Access to the AI service was denied. Your session may have expired — try reloading the page.": "Zugriff auf den KI-Dienst wurde verweigert. Deine Sitzung ist möglicherweise abgelaufen — lade die Seite neu.",
+    "The AI endpoint could not be found. Check the endpoint URL in admin settings.": "Der KI-Endpunkt wurde nicht gefunden. Prüfe die Endpunkt-URL in den Admin-Einstellungen.",
+    "The AI service is currently busy. Please try again in a moment.": "Der KI-Dienst ist gerade beschäftigt. Bitte versuche es in einem Moment erneut.",
+    "The AI service is temporarily unavailable. Please try again later.": "Der KI-Dienst ist vorübergehend nicht verfügbar. Bitte versuche es später erneut.",
+    "The AI service returned an unexpected response. Please try again.": "Der KI-Dienst hat eine unerwartete Antwort zurückgegeben. Bitte versuche es erneut.",
+    "The AI endpoint must be on the same server as ownCloud. Contact your administrator.": "Der KI-Endpunkt muss auf demselben Server wie ownCloud liegen. Bitte deinen Administrator.",
+    "This file is too large to edit here (limit: 12,000 characters). Use a text editor instead.": "Diese Datei ist zu groß zum Bearbeiten hier (Limit: 12.000 Zeichen). Verwende stattdessen einen Texteditor.",
+    "The AI response was cut off before the edit was complete. Try with a shorter instruction or a smaller file.": "Die KI-Antwort wurde abbr, bevor die Änderung abgeschlossen war. Versuche es mit einer kürzeren Anweisung oder einer kleineren Datei.",
+    "The AI service did not respond in time. Please try again later.": "Der KI-Dienst hat nicht rechtzeitig geantwortet. Bitte versuche es später erneut.",
+    "Could not reach the AI service. Check your network connection and try again.": "Der KI-Dienst konnte nicht erreicht werden. Prüfe deine Netzwerkverbindung und versuche es erneut.",
+    "Something went wrong. Please try again.": "Etwas ist schiefgelaufen. Bitte versuche es erneut.",
+    "First explore this folder with your tools (list its contents, read the relevant files and images), then answer:": "Erkunde zuerst diesen Ordner mit deinen Werkzeugen (Inhalt auflisten, relevante Dateien und Bilder lesen), dann antworte:",
+    "folder contents": "Ordnerinhalt",
+    "The temporary folder link has expired. Please send your message again.": "Der temporäre Ordner-Link ist abgelaufen. Bitte sende deine Nachricht erneut.",
+    "Editing is only supported for text files.": "Bearbeiten wird nur für Textdateien unterstützt.",
+    "Edit applied successfully.": "Änderung erfolgreich übernommen.",
+    "The file was changed by someone else. Reload the panel and try again.": "Die Datei wurde von jemand anderem geändert. Lade das Panel neu und versuche es erneut.",
+    "Could not save the file. Please try again.": "Die Datei konnte nicht gespeichert werden. Bitte versuche es erneut.",
+    "Edit discarded.": "Änderung verworfen.",
+    "Personal space not available": "Persönlicher Space nicht verfügbar",
+    "A file with the same name already exists. Try again in a moment.": "Eine Datei mit demselben Namen existiert bereits. Versuche es in einem Moment erneut.",
+    "Could not save the response. Please try again.": "Die Antwort konnte nicht gespeichert werden. Bitte versuche es erneut."
+  }
+}

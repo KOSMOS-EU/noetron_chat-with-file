@@ -9,6 +9,7 @@ import { useGettext } from 'vue3-gettext'
 import type { Resource, SpaceResource } from '@opencloud-eu/web-client'
 import ChatPanel from './components/ChatPanel.vue'
 import { isSupportedFile } from './utils/file-support'
+import translations from './l10n/translations.json'
 import type { LlmConfig, LlmModelOption } from './composables/useLlm'
 
 const SUPPORTED_EXTS = ['pdf', 'txt', 'md']
