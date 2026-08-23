@@ -110,10 +110,13 @@ interface ChatStreamEvent {
  * Reads the SSE stream of /chat/ask. Resolves with the 'done' payload,
  * rejects on an 'error' frame or a connection end without an answer.
  * onEvent is called for every other frame (start, phase, tool).
+ * onActivity is called for every received chunk (also for Taki's
+ * ': ping' heartbeat comments, which the frame parser below ignores).
  */
 async function readChatStream(
   body: ReadableStream<Uint8Array>,
-  onEvent: (ev: ChatStreamEvent) => void
+  onEvent: (ev: ChatStreamEvent) => void,
+  onActivity?: () => void
 ): Promise<ChatAskData> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
@@ -123,6 +126,7 @@ async function readChatStream(
     const { value, done: eof } = await reader.read()
     if (value) {
       buf += decoder.decode(value, { stream: true })
+      onActivity?.()
     }
     let sep: number
     while ((sep = buf.indexOf('\n\n')) >= 0) {
@@ -643,6 +647,13 @@ export function useChat(
     isLoading.value = true
     panelError.value = null
 
+    // Declared outside the try: catch/finally must be able to read them even
+    // if an early step (e.g. ensureFolderShare) throws before the watchdog
+    // is set up.
+    let inactivityAborted = false
+    let lastActivity = Date.now()
+    let watchdog: number | undefined
+
     try {
       const share = await ensureFolderShare()
       const folderName = resource.value?.name ?? ''
@@ -661,7 +672,34 @@ export function useChat(
         }
       }
 
+      // Server-side search scope: the shared folder as reva Resource-ID
+      // (<storageid>$<spaceid>!<opaqueid>, cf. FormatResourceID) + path
+      // relative to the space root. Without it Taki disables its search
+      // tools. driveId from the share = the space id.
+      const folderRes = resource.value
+      const scope =
+        folderRes?.storageId && folderRes?.id
+          ? {
+              resource_id: `${folderRes.storageId}$${share.driveId}!${folderRes.id}`,
+              path: folderRes.path ?? ''
+            }
+          : undefined
+
       folderProgress.value = { count: 0, thinking: true, startedAt: Date.now() }
+
+      // Inactivity watchdog: Taki sends an SSE heartbeat while the LLM
+      // waits, so any chunk counts as activity. Without data for a long
+      // time the connection is (likely) dead behind the reverse proxy —
+      // abort early with a clear message instead of waiting for the
+      // 30-minute safety net.
+      const WATCHDOG_MS = 90_000
+      const abortController = new AbortController()
+      watchdog = window.setInterval(() => {
+        if (Date.now() - lastActivity > WATCHDOG_MS) {
+          inactivityAborted = true
+          abortController.abort()
+        }
+      }, 5_000)
       const res = await fetchWithAuthRetry(`${window.location.origin}/chat/ask`, {
         method: 'POST',
         headers: buildHeaders(),
@@ -669,7 +707,7 @@ export function useChat(
         // over a growing context, OCR on scans). The SSE progress events keep
         // the UI alive; this ceiling is only a safety net against a hung
         // connection.
-        signal: AbortSignal.timeout(1800_000),
+        signal: AbortSignal.any([AbortSignal.timeout(1800_000), abortController.signal]),
         body: JSON.stringify({
           // Empty when no local endpoint config exists — Taki falls back to
           // its configured default model.
@@ -677,7 +715,8 @@ export function useChat(
           messages: requestMessages,
           context: {
             share: { token: share.token, password: share.password },
-            folder_name: folderName
+            folder_name: folderName,
+            scope
           },
           stream: true
         })
@@ -690,25 +729,36 @@ export function useChat(
       const contentType = res.headers.get('content-type') ?? ''
       let data: ChatAskData
       if (contentType.includes('text/event-stream') && res.body) {
-        data = await readChatStream(res.body, (ev) => {
-          const p = folderProgress.value
-          if (!p) return
-          if (ev.type === 'tool') {
-            const path = (ev.path as string) || ''
-            const tool = (ev.tool as string) || ''
-            folderProgress.value = {
-              ...p,
-              count: typeof ev.index === 'number' ? ev.index : p.count,
-              current: tool === 'list_directory' ? path || $gettext('folder contents') : path || tool,
-              thinking: false
+        data = await readChatStream(
+          res.body,
+          (ev) => {
+            const p = folderProgress.value
+            if (!p) return
+            if (ev.type === 'tool') {
+              const path = (ev.path as string) || ''
+              const pattern = (ev.pattern as string) || ''
+              const tool = (ev.tool as string) || ''
+              folderProgress.value = {
+                ...p,
+                count: typeof ev.index === 'number' ? ev.index : p.count,
+                current:
+                  tool === 'list_directory'
+                    ? path || $gettext('folder contents')
+                    : path || pattern || tool,
+                thinking: false
+              }
+            } else if (ev.type === 'phase') {
+              folderProgress.value = { ...p, current: undefined, thinking: true }
             }
-          } else if (ev.type === 'phase') {
-            folderProgress.value = { ...p, current: undefined, thinking: true }
+          },
+          () => {
+            lastActivity = Date.now()
           }
-        })
+        )
       } else {
         // Older Taki without stream support → final JSON answer
         data = (await res.json()) as ChatAskData
+        lastActivity = Date.now()
       }
       if (data.error) {
         throw new Error(data.error)
@@ -729,7 +779,11 @@ export function useChat(
     } catch (err) {
       // Roll back the optimistic user message so the user can retry cleanly
       messages.value = messages.value.slice(0, -1)
-      if (err instanceof DOMException && err.name === 'TimeoutError') {
+      if (inactivityAborted) {
+        panelError.value = $gettext(
+          'No data from the AI service for over 90 seconds — the connection was interrupted. Please send your message again.'
+        )
+      } else if (err instanceof DOMException && err.name === 'TimeoutError') {
         panelError.value = $gettext(
           'The AI service did not respond in time. Please try again later.'
         )
@@ -742,6 +796,7 @@ export function useChat(
           err instanceof Error ? err.message : $gettext('Something went wrong. Please try again.')
       }
     } finally {
+      window.clearInterval(watchdog)
       isLoading.value = false
       folderProgress.value = null
     }

@@ -96,6 +96,7 @@
     "The AI endpoint must be on the same server as ownCloud. Contact your administrator.": "Der KI-Endpunkt muss auf demselben Server wie ownCloud liegen. Bitte deinen Administrator.",
     "This file is too large to edit here (limit: 12,000 characters). Use a text editor instead.": "Diese Datei ist zu groß zum Bearbeiten hier (Limit: 12.000 Zeichen). Verwende stattdessen einen Texteditor.",
     "The AI response was cut off before the edit was complete. Try with a shorter instruction or a smaller file.": "Die KI-Antwort wurde abbr, bevor die Änderung abgeschlossen war. Versuche es mit einer kürzeren Anweisung oder einer kleineren Datei.",
+    "No data from the AI service for over 90 seconds — the connection was interrupted. Please send your message again.": "Keine Daten vom KI-Dienst seit über 90 Sekunden — die Verbindung wurde unterbrochen. Bitte sende deine Nachricht erneut.",
     "The AI service did not respond in time. Please try again later.": "Der KI-Dienst hat nicht rechtzeitig geantwortet. Bitte versuche es später erneut.",
     "Could not reach the AI service. Check your network connection and try again.": "Der KI-Dienst konnte nicht erreicht werden. Prüfe deine Netzwerkverbindung und versuche es erneut.",
     "Something went wrong. Please try again.": "Etwas ist schiefgelaufen. Bitte versuche es erneut.",
