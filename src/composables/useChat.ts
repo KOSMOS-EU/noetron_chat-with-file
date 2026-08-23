@@ -676,18 +676,19 @@ export function useChat(
         }
       }
 
-      // Server-side search scope: the shared folder as reva Resource-ID
-      // (<storageid>$<spaceid>!<opaqueid>, cf. FormatResourceID) + path
-      // relative to the space root. Without it Taki disables its search
-      // tools. driveId from the share = the space id.
+      // Server-side search scope: the shared folder's own reva resource id
+      // — resource.id is already in the exact format the search service
+      // expects (<storageid>$<spaceid> at the space root,
+      // <storageid>$<spaceid>!<opaqueid> in subfolders, cf. FormatResourceID),
+      // plus the folder path relative to the space root (Taki strips it from
+      // hit paths). Without it Taki disables its search tools.
       const folderRes = resource.value
-      const scope =
-        folderRes?.storageId && folderRes?.id
-          ? {
-              resource_id: `${folderRes.storageId}$${share.driveId}!${folderRes.id}`,
-              path: folderRes.path ?? ''
-            }
-          : undefined
+      const scope = folderRes?.id
+        ? {
+            resource_id: folderRes.id,
+            path: folderRes.path ?? ''
+          }
+        : undefined
 
       folderProgress.value = { count: 0, thinking: true, startedAt: Date.now() }
 
