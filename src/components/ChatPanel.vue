@@ -133,6 +133,8 @@
                   >
                     <span class="trace-tool">{{ entry.tool }}</span>
                     <span v-if="entry.path" class="trace-path">{{ entry.path }}</span>
+                    <span v-if="entry.pattern" class="trace-path">{{ entry.pattern }}</span>
+                    <span v-if="entry.extra" class="trace-flag">+ {{ entry.extra }}</span>
                     <span v-if="entry.method" class="trace-flag trace-flag--method">{{ entry.method }}</span>
                     <span v-if="entry.chars > 0" class="trace-flag">{{ formatChars(entry.chars) }}</span>
                     <span v-if="entry.truncated" class="trace-flag trace-flag--warn">

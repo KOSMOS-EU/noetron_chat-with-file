@@ -31,6 +31,10 @@ export interface ChatResource {
 export interface ToolTraceEntry {
   tool: string
   path?: string
+  /** Search query (search_item / search_dir) */
+  pattern?: string
+  /** Additional structured filter combined via AND (search tools) */
+  extra?: string
   method?: string
   chars?: number
   truncated?: boolean
