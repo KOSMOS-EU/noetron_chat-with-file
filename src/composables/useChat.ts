@@ -322,7 +322,8 @@ export function useChat(
   async function fetchChatToken(): Promise<ChatToken | null> {
     try {
       const res = await fetchWithAuthRetry(`${window.location.origin}/chat/token`, {
-        method: 'GET'
+        method: 'GET',
+        headers: buildHeaders()
       })
       if (!res.ok) {
         return null
