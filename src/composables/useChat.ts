@@ -64,6 +64,11 @@ export interface ChatMessage {
   applied?: boolean
   /** Tool executions performed for this answer (folder chat only) */
   toolTrace?: ToolTraceEntry[]
+  /**
+   * Clickable answer options the model offered via present_options
+   * (folder chat only). Clicking one sends it as the next user message.
+   */
+  options?: string[]
 }
 
 export interface UseChatResult {
@@ -101,6 +106,8 @@ interface ChatAskData {
   answer?: string
   tool_trace?: ToolTraceEntry[]
   iterations?: number
+  /** Answer options from present_options / loop break (clickable in the UI) */
+  options?: string[]
   error?: string
 }
 
@@ -755,6 +762,10 @@ export function useChat(
     let inactivityAborted = false
     let lastActivity = Date.now()
     let watchdog: number | undefined
+    // present_options / Loop-Abbruch: Taki schickt die Antwort-Optionen als
+    // eigenes "options"-Event (und im done-Payload); an die finale Antwort
+    // hängen, damit die UI sie als Buttons rendert.
+    let pendingOptions: string[] = []
 
     try {
       const share = await ensureFolderShare()
@@ -833,6 +844,11 @@ export function useChat(
         data = await readChatStream(
           res.body,
           (ev) => {
+            if (ev.type === 'options' && Array.isArray(ev.options)) {
+              pendingOptions = (ev.options as unknown[])
+                .filter((o): o is string => typeof o === 'string' && o.trim() !== '')
+                .slice(0, 5)
+            }
             const p = folderProgress.value
             if (!p) return
             if (ev.type === 'tool') {
@@ -876,7 +892,14 @@ export function useChat(
       }
 
       const reply = (data.answer ?? '').trim()
-      messages.value = [...messages.value, { role: 'assistant', content: reply, toolTrace: trace }]
+      const options = (data.options ?? pendingOptions)
+        .filter((o) => typeof o === 'string' && o.trim() !== '')
+        .slice(0, 5)
+      const assistantMessage: ChatMessage = { role: 'assistant', content: reply, toolTrace: trace }
+      if (options.length > 0) {
+        assistantMessage.options = options
+      }
+      messages.value = [...messages.value, assistantMessage]
     } catch (err) {
       // Roll back the optimistic user message so the user can retry cleanly
       messages.value = messages.value.slice(0, -1)

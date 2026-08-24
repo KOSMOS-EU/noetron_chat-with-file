@@ -146,6 +146,20 @@
                   </div>
                 </div>
               </template>
+              <!-- Answer options from present_options / loop break (folder chat):
+                   clicking sends the option as the next user message -->
+              <div v-if="message.options && message.options.length > 0" class="chat-options">
+                <button
+                  v-for="(option, oi) in message.options"
+                  :key="oi"
+                  type="button"
+                  class="chat-option-btn"
+                  :disabled="isLoading"
+                  @click="pickOption(option)"
+                >
+                  {{ option }}
+                </button>
+              </div>
               <template v-if="message.editProposal">
                 <div class="chat-diff oc-mt-xs">
                   <button
@@ -414,6 +428,15 @@ async function copyMessage(index: number): Promise<void> {
   copyTimer = setTimeout(() => {
     copiedIndex.value = null
   }, 2000)
+}
+
+// Answer options (present_options / loop break): clicking one sends it as
+// the next user message — no extra UI state needed.
+function pickOption(option: string): void {
+  if (isLoading.value) {
+    return
+  }
+  void sendMessage(option, 'chat')
 }
 
 // DEBUG: temporarily trace model selection (remove once the single-option issue is resolved)
@@ -926,6 +949,42 @@ onMounted(() => {
   font-style: normal;
   font-family: var(--oc-font-family-mono, monospace);
   font-size: 0.9em;
+}
+
+/* Answer options (present_options / loop break) */
+.chat-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.chat-option-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-size: 0.85rem;
+  font-family: inherit;
+  line-height: 1.35;
+  color: var(--oc-color-text-default, inherit);
+  background: transparent;
+  border: 1px solid var(--oc-color-input-border, #ccc);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s;
+}
+
+.chat-option-btn:hover:not(:disabled) {
+  border-color: var(--oc-color-swatch-primary-default, #0d6efd);
+  background: color-mix(in srgb, var(--oc-color-swatch-primary-default, #0d6efd) 8%, transparent);
+}
+
+.chat-option-btn:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 /* Unified input card */
