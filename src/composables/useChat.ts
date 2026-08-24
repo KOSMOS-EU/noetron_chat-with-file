@@ -300,46 +300,92 @@ export function useChat(
     return h
   }
 
-  // Remaining validity of the JWT in seconds (from the `exp` claim, decoded
-  // without verification), or null if the token is not a decodable JWT.
-  function tokenExpiresInSeconds(token: string | undefined): number | null {
-    if (!token) {
-      return null
-    }
-    const segment = token.split('.')[1]
-    if (!segment) {
-      return null
-    }
+  // ── Chat-Token (Taki, langlebig) ─────────────────────────────
+  // Long folder chats (10–30 min) must not ride on the 5-minute IDP
+  // bearer. Taki wraps the proxy-minted 1-day user JWT into an HMAC token
+  // (GET /chat/token, still OIDC-gated) that the unprotected
+  // /chat-direct route verifies itself. In-memory per panel instance;
+  // the 24h/expiry of the embedded user JWT is the server-side bound.
+  interface ChatToken {
+    token: string
+    /** Unix seconds, from Taki */
+    exp: number
+    /** When this token was fetched (ms) */
+    fetchedAt: number
+  }
+  let chatTokenState: ChatToken | null = null
+  // Re-fetch when less than this much validity remains…
+  const CHAT_TOKEN_REFRESH_MARGIN_SECONDS = 300
+  // …but never more often than this (minimum polling interval).
+  const CHAT_TOKEN_MIN_FETCH_INTERVAL_MS = 60_000
+
+  async function fetchChatToken(): Promise<ChatToken | null> {
     try {
-      const base64 = segment.replace(/-/g, '+').replace(/_/g, '/')
-      const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
-      const exp = (JSON.parse(atob(padded)) as { exp?: unknown }).exp
-      return typeof exp === 'number' ? exp - Math.floor(Date.now() / 1000) : null
+      const res = await fetchWithAuthRetry(`${window.location.origin}/chat/token`, {
+        method: 'GET'
+      })
+      if (!res.ok) {
+        return null
+      }
+      const data = (await res.json()) as { token?: string; exp?: number }
+      if (!data.token || typeof data.exp !== 'number') {
+        return null
+      }
+      chatTokenState = { token: data.token, exp: data.exp, fetchedAt: Date.now() }
+      return chatTokenState
     } catch {
+      // Taki unreachable or endpoint missing (older build) — the legacy
+      // /chat/ask route is used instead.
       return null
     }
   }
 
-  // The host app renews the token via a web-worker timer shortly before
-  // expiry, but that timer stops while the renderer process is suspended
-  // (background tab, mobile) — after a longer absence the store can still
-  // hold an expired token. Sending is the one moment we know the page is
-  // alive, so refresh right before building the request headers, using the
-  // same mechanism the host uses (same signinSilent, same auth store).
-  const TOKEN_REFRESH_THRESHOLD_SECONDS = 30
+  async function ensureChatToken(): Promise<ChatToken | null> {
+    const token = chatTokenState
+    if (token) {
+      const remainingSeconds = token.exp - Math.floor(Date.now() / 1000)
+      const stale = remainingSeconds <= CHAT_TOKEN_REFRESH_MARGIN_SECONDS
+      const tooSoon = Date.now() - token.fetchedAt < CHAT_TOKEN_MIN_FETCH_INTERVAL_MS
+      if (!stale || tooSoon) {
+        return token
+      }
+    }
+    return fetchChatToken()
+  }
 
-  async function ensureFreshAccessToken(): Promise<void> {
-    const expiresInSeconds = tokenExpiresInSeconds(authStore.accessToken)
-    if (expiresInSeconds === null || expiresInSeconds >= TOKEN_REFRESH_THRESHOLD_SECONDS) {
-      return
+  // POSTs the folder-chat request to /chat-direct/ask (chat token) and
+  // falls back to the OIDC-gated /chat/ask (5-min bearer) when the chat
+  // token is unavailable or rejected.
+  async function postChatAsk(body: string, signal: AbortSignal): Promise<Response> {
+    const init: RequestInit = { method: 'POST', body, signal }
+    const directHeaders = (token: string): Record<string, string> => ({
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    })
+    const token = await ensureChatToken()
+    if (token) {
+      let res = await fetch('/chat-direct/ask', { ...init, headers: directHeaders(token.token) })
+      if (res.status === 401) {
+        // Token rejected (e.g. Taki restarted with a new secret) — force
+        // one re-fetch and retry.
+        const refreshed = await fetchChatToken()
+        if (refreshed) {
+          res = await fetch('/chat-direct/ask', {
+            ...init,
+            headers: directHeaders(refreshed.token)
+          })
+        }
+      }
+      // 401/403/404 = route or token not usable (e.g. older Taki without
+      // the route) → fall back to the legacy OIDC-gated route below.
+      if (res.status !== 401 && res.status !== 403 && res.status !== 404) {
+        return res
+      }
     }
-    try {
-      await authService.signinSilent()
-    } catch (error) {
-      // Renewal failed (IDP session gone, network) — continue with the
-      // current token; the 401-retry backstop below still applies.
-      console.warn('ensureFreshAccessToken: silent renewal failed', error)
-    }
+    return fetchWithAuthRetry(`${window.location.origin}/chat/ask`, {
+      ...init,
+      headers: buildHeaders()
+    })
   }
 
   // The IDP access token is short-lived (5 min default) and normally kept
@@ -494,6 +540,11 @@ export function useChat(
         if (cachedFileText === null && !isFolder.value) {
           prefetchFileText()
         }
+        if (isFolder.value) {
+          // Warm the chat token before the first message, so a long folder
+          // chat starts without an extra token round trip on send.
+          void ensureChatToken()
+        }
       }
     },
     { immediate: true }
@@ -606,7 +657,6 @@ export function useChat(
         ]
       }
 
-      await ensureFreshAccessToken()
       const res = await fetchWithAuthRetry(`${base}/chat/completions`, {
         method: 'POST',
         headers: buildHeaders(),
@@ -752,16 +802,8 @@ export function useChat(
           abortController.abort()
         }
       }, 5_000)
-      await ensureFreshAccessToken()
-      const res = await fetchWithAuthRetry(`${window.location.origin}/chat/ask`, {
-        method: 'POST',
-        headers: buildHeaders(),
-        // Folder chat legitimately takes 10–20+ minutes (many LLM iterations
-        // over a growing context, OCR on scans). The SSE progress events keep
-        // the UI alive; this ceiling is only a safety net against a hung
-        // connection.
-        signal: AbortSignal.any([AbortSignal.timeout(1800_000), abortController.signal]),
-        body: JSON.stringify({
+      const res = await postChatAsk(
+        JSON.stringify({
           // Empty when no local endpoint config exists — Taki falls back to
           // its configured default model.
           model: selectedModel.value?.model ?? '',
@@ -772,8 +814,13 @@ export function useChat(
             scope
           },
           stream: true
-        })
-      })
+        }),
+        // Folder chat legitimately takes 10–20+ minutes (many LLM iterations
+        // over a growing context, OCR on scans). The SSE progress events keep
+        // the UI alive; this ceiling is only a safety net against a hung
+        // connection.
+        AbortSignal.any([AbortSignal.timeout(1800_000), abortController.signal])
+      )
 
       if (!res.ok) {
         throw new Error(aiErrorMessage(res.status))
