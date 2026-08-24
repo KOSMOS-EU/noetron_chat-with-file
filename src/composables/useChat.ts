@@ -300,6 +300,48 @@ export function useChat(
     return h
   }
 
+  // Remaining validity of the JWT in seconds (from the `exp` claim, decoded
+  // without verification), or null if the token is not a decodable JWT.
+  function tokenExpiresInSeconds(token: string | undefined): number | null {
+    if (!token) {
+      return null
+    }
+    const segment = token.split('.')[1]
+    if (!segment) {
+      return null
+    }
+    try {
+      const base64 = segment.replace(/-/g, '+').replace(/_/g, '/')
+      const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
+      const exp = (JSON.parse(atob(padded)) as { exp?: unknown }).exp
+      return typeof exp === 'number' ? exp - Math.floor(Date.now() / 1000) : null
+    } catch {
+      return null
+    }
+  }
+
+  // The host app renews the token via a web-worker timer shortly before
+  // expiry, but that timer stops while the renderer process is suspended
+  // (background tab, mobile) — after a longer absence the store can still
+  // hold an expired token. Sending is the one moment we know the page is
+  // alive, so refresh right before building the request headers, using the
+  // same mechanism the host uses (same signinSilent, same auth store).
+  const TOKEN_REFRESH_THRESHOLD_SECONDS = 30
+
+  async function ensureFreshAccessToken(): Promise<void> {
+    const expiresInSeconds = tokenExpiresInSeconds(authStore.accessToken)
+    if (expiresInSeconds === null || expiresInSeconds >= TOKEN_REFRESH_THRESHOLD_SECONDS) {
+      return
+    }
+    try {
+      await authService.signinSilent()
+    } catch (error) {
+      // Renewal failed (IDP session gone, network) — continue with the
+      // current token; the 401-retry backstop below still applies.
+      console.warn('ensureFreshAccessToken: silent renewal failed', error)
+    }
+  }
+
   // The IDP access token is short-lived (5 min default) and normally kept
   // fresh by the host app's token timer. If that renewal chain breaks (e.g.
   // the tab was suspended while the user stepped away), a request can arrive
@@ -313,11 +355,13 @@ export function useChat(
     const previousToken = authStore.accessToken
     try {
       await authService.signinSilent()
-    } catch {
+    } catch (error) {
       // Renewal failed (e.g. the IDP session is gone) — fall through with
       // the original 401/403 response.
+      console.warn('fetchWithAuthRetry: silent renewal failed', error)
     }
     if (authStore.accessToken === previousToken) {
+      console.warn('fetchWithAuthRetry: renewal did not change the access token')
       return res
     }
     const headers = new Headers(init.headers)
@@ -341,10 +385,12 @@ export function useChat(
       const previousToken = authStore.accessToken
       try {
         await authService.signinSilent()
-      } catch {
+      } catch (renewalError) {
+        console.warn('webdavWithAuthRetry: silent renewal failed', renewalError)
         throw err
       }
       if (authStore.accessToken === previousToken) {
+        console.warn('webdavWithAuthRetry: renewal did not change the access token')
         throw err
       }
       return fn()
@@ -560,6 +606,7 @@ export function useChat(
         ]
       }
 
+      await ensureFreshAccessToken()
       const res = await fetchWithAuthRetry(`${base}/chat/completions`, {
         method: 'POST',
         headers: buildHeaders(),
@@ -705,6 +752,7 @@ export function useChat(
           abortController.abort()
         }
       }, 5_000)
+      await ensureFreshAccessToken()
       const res = await fetchWithAuthRetry(`${window.location.origin}/chat/ask`, {
         method: 'POST',
         headers: buildHeaders(),
