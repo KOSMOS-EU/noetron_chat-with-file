@@ -314,6 +314,17 @@
             {{ $pgettext('Thinking toggle label', 'Think') }}
           </button>
 
+          <oc-select
+            v-if="models.length > 1"
+            v-model="selectedModelId"
+            class="model-select"
+            :label="$pgettext('Model selector label', 'Model')"
+            :label-hidden="true"
+            :options="models"
+            :reduce="reduceModelOption"
+            :searchable="false"
+          />
+
           <!-- Microphone: record a voice note, transcribe via Whisper,
                append the text to the input. States: idle → recording →
                transcribing. -->
@@ -379,17 +390,6 @@
               />
             </svg>
           </button>
-
-          <oc-select
-            v-if="models.length > 1"
-            v-model="selectedModelId"
-            class="model-select"
-            :label="$pgettext('Model selector label', 'Model')"
-            :label-hidden="true"
-            :options="models"
-            :reduce="reduceModelOption"
-            :searchable="false"
-          />
 
           <button
             class="send-btn"
