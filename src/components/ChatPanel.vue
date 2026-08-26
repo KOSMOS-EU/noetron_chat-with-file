@@ -314,6 +314,72 @@
             {{ $pgettext('Thinking toggle label', 'Think') }}
           </button>
 
+          <!-- Microphone: record a voice note, transcribe via Whisper,
+               append the text to the input. States: idle → recording →
+               transcribing. -->
+          <button
+            class="mic-btn"
+            :class="{
+              'mic-btn--recording': micState === 'recording',
+              'mic-btn--transcribing': micState === 'transcribing'
+            }"
+            :disabled="micState === 'transcribing'"
+            :aria-label="
+              micState === 'recording'
+                ? $pgettext('Stop audio recording button', 'Stop recording')
+                : micState === 'transcribing'
+                  ? $pgettext('Transcribing audio', 'Transcribing…')
+                  : $pgettext('Record voice message button', 'Record voice message')
+            "
+            :title="
+              micState === 'recording'
+                ? $gettext('Stop recording')
+                : $gettext('Hold a short speech, it is transcribed into the message')
+            "
+            @click="micState === 'recording' ? stopRecording() : startRecording()"
+          >
+            <svg
+              v-if="micState === 'transcribing'"
+              class="mic-spinner"
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3" stroke-opacity="0.25" />
+              <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round" />
+            </svg>
+            <svg
+              v-else-if="micState === 'recording'"
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+            <svg
+              v-else
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"
+              />
+              <path
+                d="M19 11a1 1 0 1 0-2 0 5 5 0 0 1-10 0 1 1 0 1 0-2 0 7 7 0 0 0 6 6.92V20H8.5a1 1 0 1 0 0 2h7a1 1 0 1 0 0-2H14v-2.08A7 7 0 0 0 20 11z"
+              />
+            </svg>
+          </button>
+
           <oc-select
             v-if="models.length > 1"
             v-model="selectedModelId"
@@ -349,7 +415,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, toRef, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, toRef, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import { useChat, TEXT_EXTENSIONS, type ChatResource } from '../composables/useChat'
 import { renderMarkdown } from '../utils/markdown'
@@ -388,6 +454,7 @@ const {
   saveAnswer,
   discardEdit,
   clearChat,
+  transcribeAudio,
   ensureReady
 } = useChat(props.llmConfig ?? null, toRef(props, 'resource'))
 
@@ -457,6 +524,110 @@ const inputText = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
 const mode = ref<'chat' | 'edit'>('chat')
 const isFocused = ref(false)
+
+// ── Voice recording (mic → Whisper → inputText) ──────────────
+const micState = ref<'idle' | 'recording' | 'transcribing'>('idle')
+let mediaRecorder: MediaRecorder | null = null
+let recordedChunks: BlobPart[] = []
+let recordedMimeType = ''
+let micTimeout: ReturnType<typeof setTimeout> | undefined
+const MIC_MAX_SECONDS = 300 // hard stop after 5 min
+
+function stopMicTimer(): void {
+  if (micTimeout) {
+    clearTimeout(micTimeout)
+    micTimeout = undefined
+  }
+}
+
+async function startRecording(): Promise<void> {
+  if (micState.value !== 'idle') {
+    return
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    panelError.value = $gettext('Audio recording is not supported in this browser.')
+    return
+  }
+  let stream: MediaStream
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true }
+    })
+  } catch {
+    panelError.value = $gettext('Microphone access was denied or is unavailable.')
+    return
+  }
+  try {
+    recordedChunks = []
+    recordedMimeType =
+      MediaRecorder.isTypeSupported('audio/webm') && 'audio/webm' ||
+      (MediaRecorder.isTypeSupported('audio/ogg') && 'audio/ogg') ||
+      ''
+    mediaRecorder = new MediaRecorder(
+      stream,
+      recordedMimeType ? { mimeType: recordedMimeType } : undefined
+    )
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        recordedChunks.push(event.data)
+      }
+    }
+    mediaRecorder.onstop = () => {
+      stream.getTracks().forEach((track) => track.stop())
+    }
+    mediaRecorder.start(500)
+    micState.value = 'recording'
+    micTimeout = setTimeout(() => {
+      stopRecording()
+    }, MIC_MAX_SECONDS * 1000)
+  } catch {
+    stream.getTracks().forEach((track) => track.stop())
+    panelError.value = $gettext('Audio recording is not supported in this browser.')
+  }
+}
+
+function stopRecording(): void {
+  if (micState.value !== 'recording' || !mediaRecorder) {
+    return
+  }
+  stopMicTimer()
+  mediaRecorder.stop()
+  mediaRecorder = null
+  micState.value = 'transcribing'
+  void transcribeRecording()
+}
+
+async function transcribeRecording(): Promise<void> {
+  try {
+    const ext = recordedMimeType.includes('ogg') ? 'ogg' : 'webm'
+    const blob = new Blob(recordedChunks, {
+      type: recordedMimeType || 'audio/webm'
+    })
+    recordedChunks = []
+    if (blob.size === 0) {
+      return // nothing captured — stay silent
+    }
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const transcript = await transcribeAudio(blob, `aufnahme-${stamp}.${ext}`)
+    const trimmed = transcript.trim()
+    if (trimmed) {
+      inputText.value = inputText.value ? `${inputText.value} ${trimmed}` : trimmed
+    }
+  } catch (error) {
+    panelError.value = error instanceof Error ? error.message : $gettext('Transcription failed.')
+  } finally {
+    micState.value = 'idle'
+  }
+}
+
+onBeforeUnmount(() => {
+  stopMicTimer()
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.onstop = null
+    mediaRecorder.stop()
+    mediaRecorder = null
+  }
+})
 
 const isEditable = computed(() => {
   const ext = props.resource?.extension?.toLowerCase() ?? ''
@@ -1085,6 +1256,69 @@ onMounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Mic icon button (voice note → Whisper → input) */
+.mic-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--oc-color-text-muted, #6f6f6f);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+  flex-shrink: 0;
+}
+
+.mic-btn:hover:not(:disabled) {
+  background: var(--oc-color-background-muted, #f4f4f4);
+  color: var(--oc-color-text-default, inherit);
+}
+
+.mic-btn:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.mic-btn--recording {
+  background: var(--oc-color-swatch-error-default, #dc3545);
+  color: #fff;
+  animation: mic-pulse 1.5s ease-in-out infinite;
+}
+
+.mic-btn--recording:hover:not(:disabled) {
+  background: var(--oc-color-swatch-error-default, #dc3545);
+  color: #fff;
+}
+
+.mic-btn--transcribing {
+  color: var(--oc-color-swatch-primary-default, #0d6efd);
+}
+
+@keyframes mic-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(220, 53, 69, 0);
+  }
+}
+
+.mic-spinner {
+  animation: mic-spin 0.9s linear infinite;
+}
+
+@keyframes mic-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Send icon button */

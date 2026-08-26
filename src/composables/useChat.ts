@@ -98,6 +98,12 @@ export interface UseChatResult {
   discardEdit: (index: number) => void
   clearChat: () => void
   saveAnswer: (index: number) => Promise<void>
+  /**
+   * Transcribes an audio recording (mic) via Taki's /chat-direct/transcribe
+   * (Whisper llm-stt). Resolves with the transcript text; rejects with an
+   * Error on failure (unconfigured, too large, Taki error).
+   */
+  transcribeAudio: (audio: Blob, fileName: string) => Promise<string>
   ensureReady: () => void
 }
 
@@ -394,6 +400,52 @@ export function useChat(
       ...init,
       headers: buildHeaders()
     })
+  }
+
+  // POSTs the audio blob to Taki's /chat-direct/transcribe (chat token) and
+  // resolves with the transcript text. No legacy fallback — the route
+  // requires a Taki build that has /chat-direct/transcribe.
+  async function transcribeAudio(audio: Blob, fileName: string): Promise<string> {
+    const token = await ensureChatToken()
+    if (!token) {
+      throw new Error('Chat-Token nicht verfügbar')
+    }
+    const form = new FormData()
+    form.append('file', audio, fileName)
+    let res = await fetch('/chat-direct/transcribe', {
+      method: 'POST',
+      body: form,
+      headers: { Authorization: `Bearer ${token.token}` }
+    })
+    if (res.status === 401) {
+      // Token rejected (e.g. Taki restarted with a new secret) — force one
+      // re-fetch and retry.
+      const refreshed = await fetchChatToken()
+      if (refreshed) {
+        res = await fetch('/chat-direct/transcribe', {
+          method: 'POST',
+          body: form,
+          headers: { Authorization: `Bearer ${refreshed.token}` }
+        })
+      }
+    }
+    if (!res.ok) {
+      let detail = `${res.status}`
+      try {
+        const data = (await res.json()) as { error?: string }
+        if (data.error) {
+          detail = data.error
+        }
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new Error(detail)
+    }
+    const data = (await res.json()) as { text?: string }
+    if (!data.text) {
+      throw new Error('leeres Transkript')
+    }
+    return data.text
   }
 
   // The IDP access token is short-lived (5 min default) and normally kept
@@ -1085,6 +1137,7 @@ export function useChat(
     saveAnswer,
     discardEdit,
     clearChat,
+    transcribeAudio,
     ensureReady
   }
 }
