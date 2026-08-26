@@ -525,34 +525,15 @@ const messagesEl = ref<HTMLElement | null>(null)
 const mode = ref<'chat' | 'edit'>('chat')
 const isFocused = ref(false)
 
-// ── Voice recording (mic → WAV → Whisper → inputText) ───────
-// Uses AudioWorklet to capture raw PCM samples, then encodes to WAV
-// client-side. Whisper (vLLM) doesn't decode WebM/Opus, so we send WAV.
+// ── Voice recording (mic → WebM → Whisper → inputText) ──────
+// MediaRecorder captures WebM/Opus. Taki transcodes to WAV via ffmpeg
+// before sending to Whisper (vLLM can't decode Opus).
 const micState = ref<'idle' | 'recording' | 'transcribing'>('idle')
-let audioContext: AudioContext | null = null
-let audioStream: MediaStream | null = null
-let audioSource: MediaStreamAudioSourceNode | null = null
-let workletNode: AudioWorkletNode | null = null
-let recordedSamples: Float32Array[] = []
-let sampleRate = 16000
+let mediaRecorder: MediaRecorder | null = null
+let recordedChunks: BlobPart[] = []
+let recordedMimeType = ''
 let micTimeout: ReturnType<typeof setTimeout> | undefined
 const MIC_MAX_SECONDS = 300
-
-// Inline AudioWorklet that accumulates PCM frames
-const WORKLET_CODE = `
-class PCMCollector extends AudioWorkletProcessor {
-  process(inputs) {
-    const input = inputs[0]
-    if (input && input[0] && input[0].length > 0) {
-      const copy = new Float32Array(input[0].length)
-      copy.set(input[0])
-      this.port.postMessage(copy)
-    }
-    return true
-  }
-}
-registerProcessor('pcm-collector', PCMCollector)
-`
 
 function stopMicTimer(): void {
   if (micTimeout) {
@@ -561,76 +542,17 @@ function stopMicTimer(): void {
   }
 }
 
-function cleanupMic(): void {
-  stopMicTimer()
-  if (workletNode) {
-    workletNode.disconnect()
-    workletNode = null
-  }
-  if (audioSource) {
-    audioSource.disconnect()
-    audioSource = null
-  }
-  if (audioStream) {
-    audioStream.getTracks().forEach((track) => track.stop())
-    audioStream = null
-  }
-  if (audioContext) {
-    void audioContext.close()
-    audioContext = null
-  }
-}
-
-// Encode Float32 PCM to WAV Blob (16-bit, mono)
-function pcmToWavBlob(samples: Float32Array, sr: number): Blob {
-  const numSamples = samples.length
-  const numChannels = 1
-  const bitsPerSample = 16
-  const byteRate = sr * (bitsPerSample / 8) * numChannels
-  const blockAlign = numChannels * (bitsPerSample / 8)
-  const dataSize = numSamples * (bitsPerSample / 8)
-  const buffer = new ArrayBuffer(44 + dataSize)
-  const view = new DataView(buffer)
-
-  function writeStr(offset: number, str: string): void {
-    for (let i = 0; i < str.length; i++) {
-      view.setUint8(offset + i, str.charCodeAt(i))
-    }
-  }
-
-  writeStr(0, 'RIFF')
-  view.setUint32(4, 36 + dataSize, true)
-  writeStr(8, 'WAVE')
-  writeStr(12, 'fmt ')
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)
-  view.setUint16(22, numChannels, true)
-  view.setUint32(24, sr, true)
-  view.setUint32(28, byteRate, true)
-  view.setUint16(32, blockAlign, true)
-  view.setUint16(34, bitsPerSample, true)
-  writeStr(36, 'data')
-  view.setUint32(40, dataSize, true)
-
-  let offset = 44
-  for (let i = 0; i < numSamples; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]))
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true)
-    offset += 2
-  }
-  return new Blob([buffer], { type: 'audio/wav' })
-}
-
 async function startRecording(): Promise<void> {
   if (micState.value !== 'idle') {
     return
   }
-  if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) {
+  if (!navigator.mediaDevices?.getUserMedia) {
     panelError.value = $gettext('Audio recording is not supported in this browser.')
     return
   }
+  let stream: MediaStream
   try {
-    audioStream = await navigator.mediaDevices.getUserMedia({
+    stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true }
     })
   } catch {
@@ -638,64 +560,55 @@ async function startRecording(): Promise<void> {
     return
   }
   try {
-    try {
-      audioContext = new AudioContext({ sampleRate: 16000 })
-    } catch {
-      // Some browsers reject the sampleRate constraint — fall back to default
-      audioContext = new AudioContext()
-    }
-    sampleRate = audioContext.sampleRate
-    audioSource = audioContext.createMediaStreamSource(audioStream)
-    const workletUrl = URL.createObjectURL(
-      new Blob([WORKLET_CODE], { type: 'application/javascript' })
+    recordedChunks = []
+    recordedMimeType =
+      MediaRecorder.isTypeSupported('audio/webm') && 'audio/webm' ||
+      (MediaRecorder.isTypeSupported('audio/ogg') && 'audio/ogg') ||
+      ''
+    mediaRecorder = new MediaRecorder(
+      stream,
+      recordedMimeType ? { mimeType: recordedMimeType } : undefined
     )
-    await audioContext.audioWorklet.addModule(workletUrl)
-    URL.revokeObjectURL(workletUrl)
-    workletNode = new AudioWorkletNode(audioContext, 'pcm-collector', {
-      numberOfInputChannels: 1,
-      numberOfOutputChannels: 1
-    })
-    recordedSamples = []
-    workletNode.port.onmessage = (event: MessageEvent) => {
-      if (event.data instanceof Float32Array) {
-        recordedSamples.push(event.data)
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        recordedChunks.push(event.data)
       }
     }
-    audioSource.connect(workletNode)
+    mediaRecorder.onstop = () => {
+      stream.getTracks().forEach((track) => track.stop())
+    }
+    mediaRecorder.start(500)
     micState.value = 'recording'
     micTimeout = setTimeout(() => stopRecording(), MIC_MAX_SECONDS * 1000)
   } catch {
-    cleanupMic()
+    stream.getTracks().forEach((track) => track.stop())
     panelError.value = $gettext('Audio recording is not supported in this browser.')
   }
 }
 
 function stopRecording(): void {
-  if (micState.value !== 'recording' || !audioContext) {
+  if (micState.value !== 'recording' || !mediaRecorder) {
     return
   }
-  cleanupMic()
+  stopMicTimer()
+  mediaRecorder.stop()
+  mediaRecorder = null
   micState.value = 'transcribing'
   void transcribeRecording()
 }
 
 async function transcribeRecording(): Promise<void> {
   try {
-    const totalSamples = recordedSamples.reduce((sum, s) => sum + s.length, 0)
-    if (totalSamples === 0) {
-      recordedSamples = []
+    const ext = recordedMimeType.includes('ogg') ? 'ogg' : 'webm'
+    const blob = new Blob(recordedChunks, {
+      type: recordedMimeType || 'audio/webm'
+    })
+    recordedChunks = []
+    if (blob.size === 0) {
       return
     }
-    const merged = new Float32Array(totalSamples)
-    let offset = 0
-    for (const chunk of recordedSamples) {
-      merged.set(chunk, offset)
-      offset += chunk.length
-    }
-    recordedSamples = []
-    const wavBlob = pcmToWavBlob(merged, sampleRate)
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const transcript = await transcribeAudio(wavBlob, `aufnahme-${stamp}.wav`)
+    const transcript = await transcribeAudio(blob, `aufnahme-${stamp}.${ext}`)
     const trimmed = transcript.trim()
     if (trimmed) {
       inputText.value = inputText.value ? `${inputText.value} ${trimmed}` : trimmed
@@ -708,7 +621,12 @@ async function transcribeRecording(): Promise<void> {
 }
 
 onBeforeUnmount(() => {
-  cleanupMic()
+  stopMicTimer()
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.onstop = null
+    mediaRecorder.stop()
+    mediaRecorder = null
+  }
 })
 
 const isEditable = computed(() => {
