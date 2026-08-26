@@ -638,7 +638,12 @@ async function startRecording(): Promise<void> {
     return
   }
   try {
-    audioContext = new AudioContext({ sampleRate: 16000 })
+    try {
+      audioContext = new AudioContext({ sampleRate: 16000 })
+    } catch {
+      // Some browsers reject the sampleRate constraint — fall back to default
+      audioContext = new AudioContext()
+    }
     sampleRate = audioContext.sampleRate
     audioSource = audioContext.createMediaStreamSource(audioStream)
     const workletUrl = URL.createObjectURL(
