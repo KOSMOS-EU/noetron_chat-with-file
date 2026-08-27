@@ -90,18 +90,21 @@ export default defineWebApplication({
             (items?.length === 1 &&
               (isSupportedFile(items[0], SUPPORTED_EXTS) || items[0]?.isFolder === true)),
           component: ChatPanel,
-          componentAttrs: ({
-            items,
-            root
-          }: {
-            items?: Resource[]
-            root?: { driveType?: string }
-          }) => {
+          componentAttrs: (ctx: { items?: Resource[]; root?: { driveType?: string } }) => {
+            const { items, root } = ctx
             // No selection: the host passes the current folder as items[0]
             // (FileSideBar panelContext) — in a personal space that context
             // is the blank chat („Create with Chat"), so the resource must
             // be null or the panel would open in folder-chat mode.
             const isBlankContext = !items?.length && root?.driveType === 'personal'
+            console.log('[chat-with-file] componentAttrs', {
+              itemCount: items?.length,
+              item0: items?.[0]
+                ? { name: items[0].name, isFolder: items[0].isFolder, path: items[0].path }
+                : null,
+              rootDriveType: root?.driveType,
+              isBlankContext
+            })
             return {
               resource: isBlankContext ? null : (items?.[0] ?? null),
               isBlank: isBlankContext || undefined,
