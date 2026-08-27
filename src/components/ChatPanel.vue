@@ -1,7 +1,8 @@
 <template>
   <div data-testid="chat-with-file-panel" class="chat-panel">
-    <!-- Unconfigured placeholder (folder chat does not need the local endpoint config) -->
-    <div v-if="status === 'unconfigured' && !isFolder" class="chat-placeholder">
+    <!-- Unconfigured placeholder (folder and blank chat run against Taki and
+         do not need the local endpoint config) -->
+    <div v-if="status === 'unconfigured' && !isFolder && !isBlank" class="chat-placeholder">
       {{
         $gettext(
           'File chat is not set up yet. Contact your administrator to configure an AI endpoint.'
@@ -11,10 +12,17 @@
 
     <template v-else>
       <!-- Message history -->
-      <div ref="messagesEl" class="chat-messages">
+      <div ref="messagesEl" class="chat-messages" @click="onMessageClick">
         <div v-if="messages.length === 0 && !panelError" class="chat-placeholder">
           <template v-if="isFolder">
             {{ $gettext('Ask a question about this folder.') }}
+          </template>
+          <template v-else-if="isBlank">
+            {{
+              $gettext(
+                'Ask me anything — or tell me what to create for you (documents, apps, lists…).'
+              )
+            }}
           </template>
           <template v-else-if="mode === 'edit'">
             {{ $gettext('Describe the change you want to make to this file.') }}
@@ -231,7 +239,7 @@
 
         <div v-if="isLoading" class="chat-message chat-message--assistant oc-mb-xs">
           <div class="chat-bubble chat-bubble--assistant chat-bubble--loading">
-            <template v-if="isFolder && folderProgress">
+            <template v-if="(isFolder || isBlank) && folderProgress">
               <template v-if="folderProgress.thinking">
                 {{ $gettext('Thinking…') }}
               </template>
@@ -273,9 +281,11 @@
           :placeholder="
             isFolder
               ? $gettext('Ask about this folder… (Enter to send)')
-              : mode === 'edit'
-                ? $gettext('Describe the change… (Enter to send)')
-                : $gettext('Ask about this file… (Enter to send)')
+              : isBlank
+                ? $gettext('Ask or describe what to create… (Enter to send)')
+                : mode === 'edit'
+                  ? $gettext('Describe the change… (Enter to send)')
+                  : $gettext('Ask about this file… (Enter to send)')
           "
           :disabled="isLoading"
           rows="3"
@@ -285,9 +295,9 @@
         />
         <div class="chat-input-footer">
           <!-- Single Edit toggle: off = chat, on = edit, disabled = file not editable (e.g. PDF).
-               Hidden in folder mode — there is no single file to edit. -->
+               Hidden in folder and blank mode — there is no single file to edit. -->
           <button
-            v-if="!isFolder"
+            v-if="!isFolder && !isBlank"
             class="mode-pill"
             :class="{ 'mode-pill--active': mode === 'edit' }"
             :disabled="!isEditable"
@@ -410,6 +420,10 @@
           </button>
         </div>
       </div>
+
+      <!-- Fragment preview overlay (middle area): shows an HTML code block
+           from an answer live in a sandboxed iframe -->
+      <PreviewOverlay v-model="previewHtml" />
     </template>
   </div>
 </template>
@@ -418,10 +432,11 @@
 import { ref, computed, toRef, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import { useChat, TEXT_EXTENSIONS, type ChatResource } from '../composables/useChat'
-import { renderMarkdown } from '../utils/markdown'
+import { renderMarkdown, decodeFragment } from '../utils/markdown'
 import type { LlmConfig, LlmModelOption } from '../composables/useLlm'
 import { computeDiff } from '../utils/diff'
 import type { DiffLineType } from '../utils/diff'
+import PreviewOverlay from './PreviewOverlay.vue'
 
 interface FlatLine {
   type: DiffLineType | 'sep'
@@ -442,6 +457,7 @@ const {
   thinking,
   fileTruncated,
   isFolder,
+  isBlank,
   messages,
   isLoading,
   isApplying,
@@ -504,6 +520,28 @@ function pickOption(option: string): void {
     return
   }
   void sendMessage(option, 'chat')
+}
+
+// Fragment preview (middle-area overlay). The [] button sits inside the
+// v-html bubble content, so the click is handled via delegation on the
+// message container.
+const previewHtml = ref<string | null>(null)
+
+function onMessageClick(event: MouseEvent): void {
+  const target = event.target as HTMLElement | null
+  const button = target?.closest?.('.chat-fragment-btn') as HTMLElement | null
+  if (!button) {
+    return
+  }
+  const encoded = button.closest('.chat-fragment')?.getAttribute('data-fragment')
+  if (!encoded) {
+    return
+  }
+  try {
+    previewHtml.value = decodeFragment(encoded)
+  } catch {
+    panelError.value = $gettext('Could not open the preview.')
+  }
 }
 
 // DEBUG: temporarily trace model selection (remove once the single-option issue is resolved)
@@ -1347,5 +1385,65 @@ onMounted(() => {
 
 .send-btn:not(:disabled):hover {
   opacity: 0.85;
+}
+</style>
+
+<!-- Unscoped: the fragment nodes come from v-html and carry no scoped
+     attribute, so :deep() cannot reach them from the scoped block above. -->
+<style>
+.chat-fragment {
+  margin: 0 0 0.5em;
+  border: 1px solid var(--oc-color-input-border, #ccc);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.chat-fragment-header {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  background: var(--oc-color-background-muted, #f4f4f4);
+  border-bottom: 1px solid var(--oc-color-input-border, #ccc);
+}
+.chat-fragment-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--oc-color-swatch-primary-default, #0d6efd);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-family: inherit;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.chat-fragment-btn:hover {
+  background: color-mix(in srgb, var(--oc-color-swatch-primary-default, #0d6efd) 10%, transparent);
+}
+.chat-fragment-btn-label {
+  font-weight: 600;
+}
+.chat-fragment-details {
+  font-size: 0.8rem;
+}
+.chat-fragment-details summary {
+  cursor: pointer;
+  padding: 4px 10px;
+  color: var(--oc-color-text-muted, #6f6f6f);
+  user-select: none;
+}
+.chat-fragment-details pre {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 320px;
+  overflow: auto;
+  background: var(--oc-color-background-muted, #f4f4f4);
+  border-top: 1px solid var(--oc-color-input-border, #ccc);
+}
+.chat-fragment-details pre code {
+  font-family: var(--oc-font-family-mono, monospace);
+  font-size: 0.85em;
+  background: none;
+  padding: 0;
 }
 </style>

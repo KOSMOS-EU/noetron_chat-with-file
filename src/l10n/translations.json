@@ -2,13 +2,18 @@
   "de": {
     "Chat": {
       "": "Chat",
-      "Sidebar panel tab title": "Chat"
+      "Sidebar panel tab title": "Chat",
+      "New menu file type name": "Chat"
     },
     "Chat with file": {
       "Context menu action to open file chat": "Mit Datei chatten"
     },
     "Chat with folder": {
       "Context menu action to open folder chat": "Mit Ordner chatten"
+    },
+    "Create with Chat": {
+      "New menu file type label": "Mit Chat erstellen",
+      "New menu group title": "Mit Chat erstellen"
     },
     "Chat with File": {
       "Chat with File extension name": "Mit Datei chatten"
@@ -60,6 +65,7 @@
     "Date": "Datum",
     "Source": "Quelle",
     "Ask a question about this folder.": "Stelle eine Frage zu diesem Ordner.",
+    "Ask me anything — or tell me what to create for you (documents, apps, lists…).": "Frag mich was — oder sag mir, was ich für dich erstellen soll (Dokumente, Apps, Listen…).",
     "Describe the change you want to make to this file.": "Beschreibe die Änderung, die du an dieser Datei vornehmen möchtest.",
     "Ask a question about this file.": "Stelle eine Frage zu dieser Datei.",
     "Thinking…": "Denkt nach…",
@@ -68,6 +74,7 @@
     "This file is longer than 12,000 characters — only the beginning is used.": "Diese Datei ist länger als 12.000 Zeichen — nur der Anfang wird verwendet.",
     "Chat message input": "Chat-Nachrichteneingabe",
     "Ask about this folder… (Enter to send)": "Frage zu diesem Ordner… (Enter zum Senden)",
+    "Ask or describe what to create… (Enter to send)": "Fragen oder anlegen lassen… (Enter zum Senden)",
     "Describe the change… (Enter to send)": "Änderung beschreiben… (Enter zum Senden)",
     "Ask about this file… (Enter to send)": "Frage zu dieser Datei… (Enter zum Senden)",
     "Send message": "Nachricht senden",
@@ -101,6 +108,7 @@
     "Could not reach the AI service. Check your network connection and try again.": "Der KI-Dienst konnte nicht erreicht werden. Prüfe deine Netzwerkverbindung und versuche es erneut.",
     "Something went wrong. Please try again.": "Etwas ist schiefgelaufen. Bitte versuche es erneut.",
     "First explore this folder with your tools (list its contents, read the relevant files and images), then answer:": "Erkunde zuerst diesen Ordner mit deinen Werkzeugen (Inhalt auflisten, relevante Dateien und Bilder lesen), dann antworte:",
+    "First create a project directory in your workspace, then build what was asked (see your workspace instructions):": "Lege zuerst ein Projektverzeichnis in deinem Arbeitsbereich an, dann erstelle das Angefragte (siehe deine Arbeitsbereich-Anweisungen):",
     "folder contents": "Ordnerinhalt",
     "The temporary folder link has expired. Please send your message again.": "Der temporäre Ordner-Link ist abgelaufen. Bitte sende deine Nachricht erneut.",
     "Editing is only supported for text files.": "Bearbeiten wird nur für Textdateien unterstützt.",
@@ -110,6 +118,12 @@
     "Edit discarded.": "Änderung verworfen.",
     "Personal space not available": "Persönlicher Space nicht verfügbar",
     "A file with the same name already exists. Try again in a moment.": "Eine Datei mit demselben Namen existiert bereits. Versuche es in einem Moment erneut.",
-    "Could not save the response. Please try again.": "Die Antwort konnte nicht gespeichert werden. Bitte versuche es erneut."
+    "Could not save the response. Please try again.": "Die Antwort konnte nicht gespeichert werden. Bitte versuche es erneut.",
+    "Fragment preview": "Fragment-Vorschau",
+    "Download fragment as file": "Fragment als Datei herunterladen",
+    "Close preview": "Vorschau schließen",
+    "Preview": "Vorschau",
+    "Live preview — scripts run in a sandbox without access to your account.": "Live-Vorschau — Skripte laufen in einer Sandbox ohne Zugriff auf dein Konto.",
+    "Could not open the preview.": "Die Vorschau konnte nicht geöffnet werden."
   }
 }

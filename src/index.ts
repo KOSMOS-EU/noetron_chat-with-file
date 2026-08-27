@@ -1,9 +1,15 @@
 import {
   defineWebApplication,
+  useAppsStore,
   useResourcesStore,
-  useSideBar
+  useSideBar,
+  useSpacesStore
 } from '@opencloud-eu/web-pkg'
-import type { SidebarPanelExtension, ActionExtension, FileActionOptions } from '@opencloud-eu/web-pkg'
+import type {
+  SidebarPanelExtension,
+  ActionExtension,
+  FileActionOptions
+} from '@opencloud-eu/web-pkg'
 import { computed } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import type { Resource, SpaceResource } from '@opencloud-eu/web-client'
@@ -20,6 +26,38 @@ export default defineWebApplication({
     const { $pgettext } = useGettext()
     const resourcesStore = useResourcesStore()
     const sideBarStore = useSideBar() as any
+    const spacesStore = useSpacesStore()
+    const appsStore = useAppsStore()
+    // New-menu entry („Create with Chat"). The host's create-new-file flow
+    // checks for createFileHandler before opening the filename modal —
+    // with one, the click goes straight to the handler (no file is
+    // created, the panel opens). Personal-space gate lives in the handler.
+    appsStore.registerFileExtension({
+      appId: APP_ID,
+      data: {
+        app: APP_ID,
+        extension: 'chat',
+        label: $pgettext('New menu file type label', 'Create with Chat'),
+        name: $pgettext('New menu file type name', 'Chat'),
+        icon: 'message',
+        mimeType: 'application/x-chat',
+        newFileMenu: {
+          menuTitle: () => $pgettext('New menu group title', 'Create with Chat')
+        },
+        // The host shows a success toast and tries to open the returned
+        // resource in an editor — there is no file and no editor route for
+        // the blank chat, so resolve with the current folder (a no-op for
+        // the view) after the panel is open.
+        createFileHandler: async ({ currentFolder }) => {
+          if (spacesStore.currentSpace?.driveType !== 'personal') {
+            throw new Error('Create with Chat is only available in your personal space')
+          }
+          resourcesStore.resetSelection()
+          sideBarStore.openSideBarPanel(APP_ID)
+          return currentFolder
+        }
+      }
+    })
 
     const rawLlm = applicationConfig?.llm as
       | Record<string, string | Array<Record<string, string>>>
@@ -54,9 +92,18 @@ export default defineWebApplication({
           name: APP_ID,
           icon: 'message',
           title: () => $pgettext('Sidebar panel tab title', 'Chat'),
-          isVisible: ({ items }: { items?: Array<{ extension?: string; isFolder?: boolean }> }) =>
-            items?.length === 1 &&
-            (isSupportedFile(items[0], SUPPORTED_EXTS) || items[0]?.isFolder === true),
+          isVisible: ({
+            items,
+            root
+          }: {
+            items?: Array<{ extension?: string; isFolder?: boolean }>
+            root?: { driveType?: string }
+          }) =>
+            // Blank chat: opened without a selection (e.g. via the
+            // „Create with Chat" New-menu entry) — only in personal spaces
+            (!items?.length && root?.driveType === 'personal') ||
+            (items?.length === 1 &&
+              (isSupportedFile(items[0], SUPPORTED_EXTS) || items[0]?.isFolder === true)),
           component: ChatPanel,
           componentAttrs: ({ items }: { items?: Resource[] }) => ({
             resource: items?.[0] ?? null,

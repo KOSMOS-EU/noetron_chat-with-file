@@ -81,6 +81,8 @@ export interface UseChatResult {
   fileTruncated: Ref<boolean>
   /** True when the open resource is a folder (tool-based folder chat) */
   isFolder: Ref<boolean>
+  /** True when no resource is open — blank chat („Create with Chat") */
+  isBlank: Ref<boolean>
   /** Unique identifier of this chat session (stable across clearChat) */
   chatId: string
   messages: Ref<ChatMessage[]>
@@ -188,6 +190,7 @@ export function useChat(
   const graphClient = clientService.graphAuthenticated
 
   const isFolder = computed(() => resource.value?.isFolder === true)
+  const isBlank = computed(() => resource.value === null || resource.value === undefined)
 
   // One unique chat identifier per panel session (survives clearChat, new
   // on every panel mount) — used as the chat key in saved .md filenames.
@@ -303,6 +306,10 @@ export function useChat(
   let cachedResourceId: string | undefined
   let cachedFileText: string | null = null
   let cachedFileEtag: string | null = null
+
+  // Blank chat workspace: the personal-space folder the AI is allowed to
+  // write into (context.write.root). Created once per panel session.
+  let workspaceRoot = 'workspace/'
 
   function buildHeaders(): Record<string, string> {
     const h: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -446,6 +453,26 @@ export function useChat(
       throw new Error('leeres Transkript')
     }
     return data.text
+  }
+
+  // Ensures the personal-space workspace folder exists (blank chat write
+  // root). MKCOL on an existing collection answers 405 — that is the
+  // success case here, like in saveAnswer().
+  async function ensureWorkspace(): Promise<void> {
+    const space = spacesStore.spaces.find((s) => s.driveType === 'personal')
+    if (!space) {
+      throw new Error($gettext('Personal space not available'))
+    }
+    try {
+      await webdavWithAuthRetry(() =>
+        clientService.webdav.createFolder(space, { path: 'workspace', fetchFolder: false })
+      )
+    } catch (err) {
+      // MKCOL on an existing collection answers 405 — that is the success case here
+      if ((err as { statusCode?: number })?.statusCode !== 405) {
+        throw err
+      }
+    }
   }
 
   // The IDP access token is short-lived (5 min default) and normally kept
@@ -638,6 +665,12 @@ export function useChat(
       // Folder chat runs against Taki's /chat/ask, which has its own default
       // model — the local endpoint config is not required for it.
       await sendFolderMessage(text)
+      return
+    }
+    if (isBlank.value) {
+      // Blank chat („Create with Chat") also runs against Taki — no folder
+      // share, but a write root in the personal space (when available).
+      await sendBlankMessage(text)
       return
     }
     if (status.value === 'unconfigured') {
@@ -978,6 +1011,140 @@ export function useChat(
     }
   }
 
+  // Blank chat („Create with Chat"): no resource, no folder share. Taki
+  // injects its write tools for the personal-space workspace root and uses
+  // its blank system prompt. The conversation runs through the same
+  // /chat-direct/ask plumbing as the folder chat.
+  async function sendBlankMessage(text: string): Promise<void> {
+    const userMessage: ChatMessage = { role: 'user', content: text }
+    messages.value = [...messages.value, userMessage]
+    isLoading.value = true
+    panelError.value = null
+
+    let inactivityAborted = false
+    let lastActivity = Date.now()
+    let watchdog: number | undefined
+    let pendingOptions: string[] = []
+    let workspace: string | undefined
+
+    try {
+      // Write root is personal-space-only: if the personal space is not
+      // available, Taki simply gets no write context and answers read-only.
+      if (spacesStore.spaces.some((s) => s.driveType === 'personal')) {
+        await ensureWorkspace()
+        workspace = workspaceRoot
+      }
+
+      const requestMessages = messages.value.map((m) => ({ role: m.role, content: m.content }))
+      if (!requestMessages.some((m) => m.role === 'assistant')) {
+        requestMessages[0] = {
+          ...requestMessages[0],
+          content:
+            $gettext(
+              'First create a project directory in your workspace, then build what was asked (see your workspace instructions):'
+            ) + '\n' + requestMessages[0].content
+        }
+      }
+
+      folderProgress.value = { count: 0, thinking: true, startedAt: Date.now() }
+
+      const WATCHDOG_MS = 90_000
+      const abortController = new AbortController()
+      watchdog = window.setInterval(() => {
+        if (Date.now() - lastActivity > WATCHDOG_MS) {
+          inactivityAborted = true
+          abortController.abort()
+        }
+      }, 5_000)
+      const res = await postChatAsk(
+        JSON.stringify({
+          model: selectedModel.value?.model ?? '',
+          messages: requestMessages,
+          context: {
+            folder_name: '',
+            ...(workspace ? { write: { root: workspace } } : {})
+          },
+          stream: true
+        }),
+        AbortSignal.any([AbortSignal.timeout(1800_000), abortController.signal])
+      )
+
+      if (!res.ok) {
+        throw new Error(aiErrorMessage(res.status))
+      }
+
+      const contentType = res.headers.get('content-type') ?? ''
+      let data: ChatAskData
+      if (contentType.includes('text/event-stream') && res.body) {
+        data = await readChatStream(
+          res.body,
+          (ev) => {
+            if (ev.type === 'options' && Array.isArray(ev.options)) {
+              pendingOptions = (ev.options as unknown[])
+                .filter((o): o is string => typeof o === 'string' && o.trim() !== '')
+                .slice(0, 5)
+            }
+            const p = folderProgress.value
+            if (!p) return
+            if (ev.type === 'tool') {
+              const path = (ev.path as string) || ''
+              const tool = (ev.tool as string) || ''
+              folderProgress.value = {
+                ...p,
+                count: typeof ev.index === 'number' ? ev.index : p.count,
+                current: path || tool,
+                thinking: false
+              }
+            } else if (ev.type === 'phase') {
+              folderProgress.value = { ...p, current: undefined, thinking: true }
+            }
+          },
+          () => {
+            lastActivity = Date.now()
+          }
+        )
+      } else {
+        data = (await res.json()) as ChatAskData
+        lastActivity = Date.now()
+      }
+      if (data.error) {
+        throw new Error(data.error)
+      }
+
+      const reply = (data.answer ?? '').trim()
+      const options = (data.options ?? pendingOptions)
+        .filter((o) => typeof o === 'string' && o.trim() !== '')
+        .slice(0, 5)
+      const assistantMessage: ChatMessage = { role: 'assistant', content: reply }
+      if (options.length > 0) {
+        assistantMessage.options = options
+      }
+      messages.value = [...messages.value, assistantMessage]
+    } catch (err) {
+      messages.value = messages.value.slice(0, -1)
+      if (inactivityAborted) {
+        panelError.value = $gettext(
+          'No data from the AI service for over 90 seconds — the connection was interrupted. Please send your message again.'
+        )
+      } else if (err instanceof DOMException && err.name === 'TimeoutError') {
+        panelError.value = $gettext(
+          'The AI service did not respond in time. Please try again later.'
+        )
+      } else if (err instanceof TypeError) {
+        panelError.value = $gettext(
+          'Could not reach the AI service. Check your network connection and try again.'
+        )
+      } else {
+        panelError.value =
+          err instanceof Error ? err.message : $gettext('Something went wrong. Please try again.')
+      }
+    } finally {
+      window.clearInterval(watchdog)
+      isLoading.value = false
+      folderProgress.value = null
+    }
+  }
+
   async function applyEdit(proposal: string, index: number): Promise<void> {
     const res = resource.value
     if (!res?.storageId || !res?.path) {
@@ -1124,6 +1291,7 @@ export function useChat(
     thinking,
     fileTruncated,
     isFolder,
+    isBlank,
     chatId,
     messages,
     isLoading,
