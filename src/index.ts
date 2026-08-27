@@ -28,36 +28,6 @@ export default defineWebApplication({
     const sideBarStore = useSideBar() as any
     const spacesStore = useSpacesStore()
     const appsStore = useAppsStore()
-    // New-menu entry („Create with Chat"). The host's create-new-file flow
-    // checks for createFileHandler before opening the filename modal —
-    // with one, the click goes straight to the handler (no file is
-    // created, the panel opens). Personal-space gate lives in the handler.
-    appsStore.registerFileExtension({
-      appId: APP_ID,
-      data: {
-        app: APP_ID,
-        extension: 'chat',
-        label: $pgettext('New menu file type label', 'Create with Chat'),
-        name: $pgettext('New menu file type name', 'Chat'),
-        icon: 'message',
-        mimeType: 'application/x-chat',
-        newFileMenu: {
-          menuTitle: () => $pgettext('New menu group title', 'Create with Chat')
-        },
-        // The host shows a success toast and tries to open the returned
-        // resource in an editor — there is no file and no editor route for
-        // the blank chat, so resolve with the current folder (a no-op for
-        // the view) after the panel is open.
-        createFileHandler: async ({ currentFolder }) => {
-          if (spacesStore.currentSpace?.driveType !== 'personal') {
-            throw new Error('Create with Chat is only available in your personal space')
-          }
-          resourcesStore.resetSelection()
-          sideBarStore.openSideBarPanel(APP_ID)
-          return currentFolder
-        }
-      }
-    })
 
     const rawLlm = applicationConfig?.llm as
       | Record<string, string | Array<Record<string, string>>>
@@ -84,6 +54,21 @@ export default defineWebApplication({
         : null
 
     const extensions = computed(() => [
+      {
+        id: `${APP_ID}.new-menu-action`,
+        type: 'action',
+        extensionPointIds: ['app.files.upload-menu'],
+        action: {
+          name: `${APP_ID}-new-chat`,
+          icon: 'message',
+          label: () => $pgettext('New menu file type label', 'Create with Chat'),
+          isVisible: () => spacesStore.currentSpace?.driveType === 'personal',
+          handler: () => {
+            resourcesStore.resetSelection()
+            sideBarStore.openSideBarPanel(APP_ID)
+          }
+        }
+      } as ActionExtension,
       {
         id: `${APP_ID}.panel`,
         type: 'sidebarPanel',
