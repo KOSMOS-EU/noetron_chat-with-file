@@ -84,29 +84,27 @@ export default defineWebApplication({
             items?: Array<{ extension?: string; isFolder?: boolean }>
             root?: { driveType?: string }
           }) =>
-            // Blank chat: opened without a selection (e.g. via the
-            // „Create with Chat" New-menu entry) — only in personal spaces
-            (!items?.length && root?.driveType === 'personal') ||
-            (items?.length === 1 &&
-              (isSupportedFile(items[0], SUPPORTED_EXTS) || items[0]?.isFolder === true)),
+            // Blank chat: opened without a file selection (e.g. via the
+            // „Create with Chat" New-menu entry) — only in personal spaces.
+            // The host may pass the current folder as items[0] even without
+            // an explicit selection, so folders are treated as blank context.
+            (root?.driveType === 'personal' &&
+              (!items?.length || items[0]?.isFolder === true)) ||
+            (items?.length === 1 && isSupportedFile(items[0], SUPPORTED_EXTS)),
           component: ChatPanel,
           componentAttrs: (ctx: { items?: Resource[]; root?: { driveType?: string } }) => {
             const { items, root } = ctx
-            // No selection: the host passes the current folder as items[0]
-            // (FileSideBar panelContext) — in a personal space that context
-            // is the blank chat („Create with Chat"), so the resource must
-            // be null or the panel would open in folder-chat mode.
-            const isBlankContext = !items?.length && root?.driveType === 'personal'
-            console.log('[chat-with-file] componentAttrs', {
-              itemCount: items?.length,
-              item0: items?.[0]
-                ? { name: items[0].name, isFolder: items[0].isFolder, path: items[0].path }
-                : null,
-              rootDriveType: root?.driveType,
-              isBlankContext
-            })
+            // Blank chat („Create with Chat"): opened without a file selection
+            // — in a personal space the context is the blank chat. The host
+            // may pass the current folder as items[0] even without an explicit
+            // selection, so folders are treated as blank context (the user
+            // can still open folder chat via the context menu).
+            const item0 = items?.[0]
+            const isBlankContext =
+              root?.driveType === 'personal' &&
+              (!item0 || item0.isFolder === true)
             return {
-              resource: isBlankContext ? null : (items?.[0] ?? null),
+              resource: isBlankContext ? null : (item0 ?? null),
               isBlank: isBlankContext || undefined,
               llmConfig
             }

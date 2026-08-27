@@ -560,12 +560,7 @@ watch(selectedModelId, (newId, oldId) => {
 })
 
 onMounted(() => {
-  console.log('[cwf] ChatPanel mounted', {
-    isBlank: isBlank.value,
-    isFolder: isFolder.value,
-    resource: props.resource ? { name: props.resource.name, isFolder: props.resource.isFolder } : null,
-    isBlankProp: props.isBlank
-  })
+  console.debug('[cwf] ChatPanel mounted, models:', JSON.stringify(models.value))
 })
 
 const inputText = ref('')
