@@ -10,7 +10,7 @@ import type {
   ActionExtension,
   FileActionOptions
 } from '@opencloud-eu/web-pkg'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import type { Resource, SpaceResource } from '@opencloud-eu/web-client'
 import ChatPanel from './components/ChatPanel.vue'
@@ -53,6 +53,28 @@ export default defineWebApplication({
         ? { endpoint: rawLlm.endpoint as string, models }
         : null
 
+    // Drei Einstiegspunkte, drei Handler — jeder setzt einen klaren Zustand
+    // im chatModeRef, den componentAttrs later liest.
+    const chatModeRef = ref<'blank' | 'file' | 'folder'>('blank')
+
+    const openBlankChat = () => {
+      chatModeRef.value = 'blank'
+      resourcesStore.resetSelection()
+      sideBarStore.openSideBarPanel(APP_ID)
+    }
+
+    const openFileChat = (resources: Resource[]) => {
+      chatModeRef.value = 'file'
+      resourcesStore.setSelection(resources.map(({ id }) => id))
+      sideBarStore.openSideBarPanel(APP_ID)
+    }
+
+    const openFolderChat = (resources: Resource[]) => {
+      chatModeRef.value = 'folder'
+      resourcesStore.setSelection(resources.map(({ id }) => id))
+      sideBarStore.openSideBarPanel(APP_ID)
+    }
+
     const extensions = computed(() => [
       {
         id: `${APP_ID}.new-menu-action`,
@@ -63,10 +85,7 @@ export default defineWebApplication({
           icon: 'message',
           label: () => $pgettext('New menu file type label', 'Create with Chat'),
           isVisible: () => spacesStore.currentSpace?.driveType === 'personal',
-          handler: () => {
-            resourcesStore.resetSelection()
-            sideBarStore.openSideBarPanel(APP_ID)
-          }
+          handler: openBlankChat
         }
       } as ActionExtension,
       {
@@ -77,35 +96,13 @@ export default defineWebApplication({
           name: APP_ID,
           icon: 'message',
           title: () => $pgettext('Sidebar panel tab title', 'Chat'),
-          isVisible: ({
-            items,
-            root
-          }: {
-            items?: Array<{ extension?: string; isFolder?: boolean }>
-            root?: { driveType?: string }
-          }) =>
-            // Blank chat: opened without a file selection (e.g. via the
-            // „Create with Chat" New-menu entry) — only in personal spaces.
-            // The host may pass the current folder as items[0] even without
-            // an explicit selection, so folders are treated as blank context.
-            (root?.driveType === 'personal' &&
-              (!items?.length || items[0]?.isFolder === true)) ||
-            (items?.length === 1 && isSupportedFile(items[0], SUPPORTED_EXTS)),
+          isVisible: () => true,
           component: ChatPanel,
-          componentAttrs: (ctx: { items?: Resource[]; root?: { driveType?: string } }) => {
-            const { items, root } = ctx
-            // Blank chat („Create with Chat"): opened without a file selection
-            // — in a personal space the context is the blank chat. The host
-            // may pass the current folder as items[0] even without an explicit
-            // selection, so folders are treated as blank context (the user
-            // can still open folder chat via the context menu).
-            const item0 = items?.[0]
-            const isBlankContext =
-              root?.driveType === 'personal' &&
-              (!item0 || item0.isFolder === true)
+          componentAttrs: () => {
+            const mode = chatModeRef.value
             return {
-              resource: isBlankContext ? null : (item0 ?? null),
-              isBlank: isBlankContext || undefined,
+              resource: mode === 'blank' ? null : (resourcesStore.selectedResources[0] ?? null),
+              isBlank: mode === 'blank' || undefined,
               llmConfig
             }
           }
@@ -121,10 +118,7 @@ export default defineWebApplication({
           label: () => $pgettext('Context menu action to open file chat', 'Chat with file'),
           isVisible: ({ resources }: { resources?: Array<{ extension?: string }> }) =>
             resources?.length === 1 && isSupportedFile(resources[0], SUPPORTED_EXTS),
-          handler: ({ resources }: FileActionOptions) => {
-            resourcesStore.setSelection(resources.map(({ id }) => id))
-            sideBarStore.openSideBarPanel(APP_ID)
-          }
+          handler: ({ resources }: FileActionOptions) => openFileChat(resources as Resource[])
         }
       } as ActionExtension,
       {
@@ -137,10 +131,7 @@ export default defineWebApplication({
           label: () => $pgettext('Context menu action to open folder chat', 'Chat with folder'),
           isVisible: ({ resources }: { resources?: Array<{ isFolder?: boolean }> }) =>
             resources?.length === 1 && resources[0]?.isFolder === true,
-          handler: ({ resources }: FileActionOptions) => {
-            resourcesStore.setSelection(resources.map(({ id }) => id))
-            sideBarStore.openSideBarPanel(APP_ID)
-          }
+          handler: ({ resources }: FileActionOptions) => openFolderChat(resources as Resource[])
         }
       } as ActionExtension
     ])
