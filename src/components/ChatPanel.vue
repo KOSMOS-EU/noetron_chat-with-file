@@ -448,6 +448,7 @@ const { $gettext, $pgettext } = useGettext()
 const props = defineProps<{
   resource?: ChatResource | null
   llmConfig?: LlmConfig | null
+  isBlank?: boolean
 }>()
 
 const {
@@ -457,7 +458,7 @@ const {
   thinking,
   fileTruncated,
   isFolder,
-  isBlank,
+  isBlank: computedIsBlank,
   messages,
   isLoading,
   isApplying,
@@ -473,6 +474,10 @@ const {
   transcribeAudio,
   ensureReady
 } = useChat(props.llmConfig ?? null, toRef(props, 'resource'))
+
+// isBlank: explicit prop (from componentAttrs) takes precedence over the
+// computed from useChat (which only sees the resource, not the panel context).
+const isBlank = computed(() => props.isBlank ?? computedIsBlank.value)
 
 // Markdown rendering for assistant answers (raw HTML, sanitized — see
 // utils/markdown.ts). Keyed by content so the cache stays valid across
