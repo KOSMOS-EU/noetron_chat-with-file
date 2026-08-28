@@ -99,10 +99,17 @@ export default defineWebApplication({
           isVisible: () => true,
           component: ChatPanel,
           componentAttrs: () => {
+            // Wenn der Modus 'file'/'folder' ist, aber keine gültige Auswahl
+            // mehr existiert (z.B. Ordner gewechselt), fallback auf Blank.
+            // So bleibt der Create-Chat-Modus erhalten, wenn der User den
+            // Ordner wechselt, während das Panel offen ist.
             const mode = chatModeRef.value
+            const selected = resourcesStore.selectedResources[0] ?? null
+            const effectiveMode =
+              (mode === 'file' || mode === 'folder') && !selected ? 'blank' : mode
             return {
-              resource: mode === 'blank' ? null : (resourcesStore.selectedResources[0] ?? null),
-              isBlank: mode === 'blank' || undefined,
+              resource: effectiveMode === 'blank' ? null : selected,
+              isBlank: effectiveMode === 'blank' || undefined,
               llmConfig
             }
           }
