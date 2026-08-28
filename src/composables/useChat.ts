@@ -196,8 +196,18 @@ export function useChat(
   // on every panel mount) — used as the chat key in saved .md filenames.
   const chatId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 
-  const resourceId = resource.value?.id ?? ''
-  const messages = ref<ChatMessage[]>(messageCache.get(resourceId) ?? [])
+  // Cache-Keys: Folder-Chat pro Resource-ID, Blank-Chat mit festem Key
+  // (übersteht Ordnerwechsel im UI, da resource.value zwischen null und
+  // Folder wechselt, aber der Blank-Chat-Verlauf erhalten bleibt).
+  const blankChatCacheKey = 'blank-chat'
+  const cacheKey = computed(() => {
+    const res = resource.value
+    if (res === null || res === undefined) {
+      return blankChatCacheKey
+    }
+    return res.id ?? blankChatCacheKey
+  })
+  const messages = ref<ChatMessage[]>(messageCache.get(cacheKey.value) ?? [])
   const isLoading = ref(false)
   const isApplying = ref(false)
   const panelError = ref<string | null>(null)
@@ -291,15 +301,15 @@ export function useChat(
   })
 
   watch(messages, (msgs) => {
-    const id = resource.value?.id
-    if (id) {
-      if (messageCache.size >= MAX_CACHE_ENTRIES && !messageCache.has(id)) {
+    const key = cacheKey.value
+    if (key) {
+      if (messageCache.size >= MAX_CACHE_ENTRIES && !messageCache.has(key)) {
         const oldest = messageCache.keys().next().value
         if (oldest !== undefined) {
           messageCache.delete(oldest)
         }
       }
-      messageCache.set(id, msgs)
+      messageCache.set(key, msgs)
     }
   })
 
@@ -690,9 +700,14 @@ export function useChat(
   }
 
   watch(
-    () => resource.value?.id,
-    (newId, oldId) => {
-      if (newId && oldId && newId !== oldId) {
+    () => resource.value,
+    (newRes, oldRes) => {
+      const newKey = newRes === null || newRes === undefined ? blankChatCacheKey : newRes?.id ?? blankChatCacheKey
+      const oldKey = oldRes === null || oldRes === undefined ? blankChatCacheKey : oldRes?.id ?? blankChatCacheKey
+      const isFolderChatChange = newRes?.isFolder === true && oldRes?.isFolder === true && newRes?.id !== oldRes?.id
+
+      // Ordnerwechsel (Folder → anderer Folder): Cache-Reset, alte Shares freigeben
+      if (isFolderChatChange) {
         panelError.value = null
         isApplying.value = false
         cachedFileText = null
@@ -700,17 +715,36 @@ export function useChat(
         cachedFileEtag = null
         void releaseFolderShare()
       }
-      if (newId) {
-        messages.value = messageCache.get(newId) ?? []
-        fileTruncated.value = false
-        if (cachedFileText === null && !isFolder.value) {
+
+      // Blank-Chat ↔ Folder-Chat-Wechsel: nur Shares freigeben, Cache bleibt
+      // (messages werden unten aus dem Cache geladen)
+      if (newKey !== oldKey) {
+        if (oldRes?.isFolder) {
+          void releaseFolderShare()
+        }
+        if (newRes?.isFolder) {
+          void releaseWorkspaceShare()
+        } else {
+          void releaseWorkspaceShare()
+        }
+      }
+
+      // Always load messages from the cache for the current resource (or blank chat)
+      messages.value = messageCache.get(newKey) ?? []
+      fileTruncated.value = false
+      cachedFileText = null
+      cachedResourceId = undefined
+      cachedFileEtag = null
+
+      if (newRes && !isFolder.value) {
+        if (cachedFileText === null) {
           prefetchFileText()
         }
-        if (isFolder.value) {
-          // Warm the chat token before the first message, so a long folder
-          // chat starts without an extra token round trip on send.
-          void ensureChatToken()
-        }
+      }
+      if (isFolder.value) {
+        // Warm the chat token before the first message, so a long folder
+        // chat starts without an extra token round trip on send.
+        void ensureChatToken()
       }
     },
     { immediate: true }
@@ -1350,9 +1384,9 @@ export function useChat(
   }
 
   function clearChat(): void {
-    const id = resource.value?.id
-    if (id) {
-      messageCache.delete(id)
+    const key = cacheKey.value
+    if (key) {
+      messageCache.delete(key)
     }
     messages.value = []
     isApplying.value = false
