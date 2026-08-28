@@ -1056,13 +1056,16 @@ export function useChat(
           abortController.abort()
         }
       }, 5_000)
+      // Den persönlichen Space-ID mitsenden, damit Taki direkt auf den
+      // Space zugreifen kann (kein PROPFIND nötig).
+      const personalSpace = spacesStore.spaces.find((s) => s.driveType === 'personal')
       const res = await postChatAsk(
         JSON.stringify({
           model: selectedModel.value?.model ?? '',
           messages: requestMessages,
           context: {
             folder_name: '',
-            ...(workspace ? { write: { root: workspace } } : {})
+            ...(workspace ? { write: { root: workspace, space_id: personalSpace?.id } } : {})
           },
           stream: true
         }),
