@@ -366,7 +366,7 @@ export function useChat(
 
     const password = passwordPolicyService.generatePassword()
     const link = await graphClient.permissions.createLink(space.id, wsEntry.id, {
-      type: 'view',
+      type: 'edit',
       password,
       expirationDateTime: new Date(Date.now() + 3600 * 1000).toISOString()
     })
