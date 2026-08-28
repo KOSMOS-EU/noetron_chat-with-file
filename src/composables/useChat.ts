@@ -287,6 +287,7 @@ export function useChat(
 
   onBeforeUnmount(() => {
     void releaseFolderShare()
+    void releaseWorkspaceShare()
   })
 
   watch(messages, (msgs) => {
@@ -307,9 +308,87 @@ export function useChat(
   let cachedFileText: string | null = null
   let cachedFileEtag: string | null = null
 
-  // Blank chat workspace: the personal-space folder the AI is allowed to
-  // write into (context.write.root). Created once per panel session.
-  let workspaceRoot = 'workspace/'
+  // Blank chat workspace share: Public-Link-Share auf /workspace im
+  // persönlichen Space. Taki nutzt dieselbe shareWebDav-Auth (Basic Auth)
+  // wie der Folder-Chat. In-memory per Panel-Instance; 1h server-side TTL.
+  interface WorkspaceShare {
+    permId: string
+    driveId: string
+    itemId: string
+    token: string
+    password: string
+    createdAt: number
+  }
+  let workspaceShare: WorkspaceShare | null = null
+  const WS_SHARE_TTL_MS = 50 * 60 * 1000
+
+  async function releaseWorkspaceShare(): Promise<void> {
+    if (!workspaceShare) return
+    const { driveId, itemId, permId } = workspaceShare
+    workspaceShare = null
+    try {
+      await graphClient.permissions.deletePermission(driveId, itemId, permId)
+    } catch { /* 1h expiry is the backstop */ }
+  }
+
+  // Ensures /workspace exists (MKCOL, 405 = ok) and creates/refreshes the
+  // public link share on it. Returns the share (token + password).
+  async function ensureWorkspaceShare(): Promise<WorkspaceShare> {
+    if (workspaceShare && Date.now() - workspaceShare.createdAt < WS_SHARE_TTL_MS) {
+      return workspaceShare
+    }
+    await releaseWorkspaceShare()
+
+    const space = spacesStore.spaces.find((s) => s.driveType === 'personal')
+    if (!space) {
+      throw new Error($gettext('Personal space not available'))
+    }
+
+    // Ensure /workspace exists (MKCOL → 405 = already there)
+    try {
+      await webdavWithAuthRetry(() =>
+        clientService.webdav.createFolder(space, { path: 'workspace', fetchFolder: false })
+      )
+    } catch (err) {
+      if ((err as { statusCode?: number })?.statusCode !== 405) {
+        throw err
+      }
+    }
+
+    // Get the workspace folder's item ID
+    const { children } = await webdavWithAuthRetry(() =>
+      clientService.webdav.listFiles(space, { path: '/' })
+    )
+    const wsEntry = children?.find((e) => e.name === 'workspace' && e.type === 'folder')
+    if (!wsEntry?.id) {
+      throw new Error($gettext('Could not resolve workspace folder'))
+    }
+
+    const password = passwordPolicyService.generatePassword()
+    const link = await graphClient.permissions.createLink(space.id, wsEntry.id, {
+      type: 'view',
+      password,
+      expirationDateTime: new Date(Date.now() + 3600 * 1000).toISOString()
+    })
+    const webUrl = link.webUrl
+    if (!webUrl) {
+      throw new Error($gettext('Could not create the workspace link'))
+    }
+    const token = new URL(webUrl).pathname.split('/').pop() ?? ''
+    if (!token) {
+      throw new Error($gettext('Could not create the workspace link'))
+    }
+
+    workspaceShare = {
+      permId: link.id,
+      driveId: space.id,
+      itemId: wsEntry.id,
+      token,
+      password,
+      createdAt: Date.now()
+    }
+    return workspaceShare
+  }
 
   function buildHeaders(): Record<string, string> {
     const h: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -1025,14 +1104,13 @@ export function useChat(
     let lastActivity = Date.now()
     let watchdog: number | undefined
     let pendingOptions: string[] = []
-    let workspace: string | undefined
+    let wsShare: WorkspaceShare | undefined
 
     try {
-      // Write root is personal-space-only: if the personal space is not
-      // available, Taki simply gets no write context and answers read-only.
+      // Workspace-Share auf /workspace im persönlichen Space.
+      // Ohne Personal Space → kein Write-Kontext → read-only.
       if (spacesStore.spaces.some((s) => s.driveType === 'personal')) {
-        await ensureWorkspace()
-        workspace = workspaceRoot
+        wsShare = await ensureWorkspaceShare()
       }
 
       const requestMessages = messages.value.map((m) => ({ role: m.role, content: m.content }))
@@ -1056,16 +1134,13 @@ export function useChat(
           abortController.abort()
         }
       }, 5_000)
-      // Den persönlichen Space-ID mitsenden, damit Taki direkt auf den
-      // Space zugreifen kann (kein PROPFIND nötig).
-      const personalSpace = spacesStore.spaces.find((s) => s.driveType === 'personal')
       const res = await postChatAsk(
         JSON.stringify({
           model: selectedModel.value?.model ?? '',
           messages: requestMessages,
           context: {
             folder_name: '',
-            ...(workspace ? { write: { root: workspace, space_id: personalSpace?.id } } : {})
+            ...(wsShare ? { write: { share: { token: wsShare.token, password: wsShare.password } } } : {})
           },
           stream: true
         }),
