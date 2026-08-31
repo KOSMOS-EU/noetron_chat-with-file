@@ -143,8 +143,13 @@ export default defineWebApplication({
           name: `${APP_ID}-folder-chat`,
           icon: 'folder',
           label: () => $pgettext('Context menu action to open folder chat', 'Chat with folder'),
-          isVisible: ({ resources }: { resources?: Array<{ isFolder?: boolean }> }) =>
-            resources?.length === 1 && resources[0]?.isFolder === true,
+          isVisible: ({ resources }: { resources?: Array<{ isFolder?: boolean; type?: string }> }) => {
+            if (resources?.length !== 1) return false
+            const r = resources[0]
+            // isFolder kann bei manchen Resource-Objekten (z.B. Breadcrumb-Context)
+            // undefined sein — dann auf type prüfen
+            return r?.isFolder === true || r?.type === 'folder' || r?.type === 'directory'
+          },
           handler: ({ resources }: FileActionOptions) => openFolderChat(resources as Resource[])
         }
       } as ActionExtension
