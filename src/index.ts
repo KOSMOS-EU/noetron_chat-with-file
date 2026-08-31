@@ -10,7 +10,7 @@ import type {
   ActionExtension,
   FileActionOptions
 } from '@opencloud-eu/web-pkg'
-import { computed, ref } from 'vue'
+import { computed, ref, toRef } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import type { Resource, SpaceResource } from '@opencloud-eu/web-client'
 import ChatPanel from './components/ChatPanel.vue'
@@ -112,12 +112,20 @@ export default defineWebApplication({
             // "Create with Chat"-Modus kippen. Auswahl ohne Auswahl wird
             // stattdessen als leer behandelt (leeres Panel, kein Modus-Wechsel).
             const mode = chatModeRef.value
-            const selected = resourcesStore.selectedResources[0] ?? null
-            const useSelection = mode !== 'blank' && !!selected
+            let resource: Resource | null
+            if (mode === 'folder') {
+              // Breadcrumb-Trigger: selectedResources enthält nur die paginierte
+              // Liste — der aktuelle Ordner ist dort nie enthalten. currentFolder
+              // ist daher die verlässliche Quelle für den Ordner-Chat.
+              resource = resourcesStore.currentFolder ?? null
+            } else {
+              const selected = resourcesStore.selectedResources[0] ?? null
+              resource = mode !== 'blank' && selected ? selected : null
+            }
             return {
-              resource: useSelection ? selected : null,
+              resource,
               isBlank: mode === 'blank' || undefined,
-              llmConfig
+              chatMode: toRef(chatModeRef)
             }
           }
         }

@@ -96,6 +96,10 @@ export interface UseChatResult {
   /** Indices of messages that were just saved (transient UI feedback) */
   savedIndices: Ref<number[]>
   sendMessage: (text: string, mode: 'chat' | 'edit') => Promise<void>
+  /** Sends a folder-chat message (tool-based chat against Taki /chat/ask) */
+  sendFolderMessage: (text: string) => Promise<void>
+  /** Sends a blank-chat („Create with Chat") message (Taki /chat-direct/ask) */
+  sendBlankMessage: (text: string) => Promise<void>
   applyEdit: (proposal: string, index: number) => Promise<void>
   discardEdit: (index: number) => void
   clearChat: () => void
@@ -1413,6 +1417,8 @@ export function useChat(
     savingIndex,
     savedIndices,
     sendMessage,
+    sendFolderMessage,
+    sendBlankMessage,
     applyEdit,
     saveAnswer,
     discardEdit,

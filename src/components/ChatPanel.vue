@@ -427,7 +427,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, toRef, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, toRef, watch, nextTick, onMounted, onBeforeUnmount, unref } from 'vue'
+import type { Ref } from 'vue'
 import { useGettext } from 'vue3-gettext'
 import { useChat, TEXT_EXTENSIONS, type ChatResource } from '../composables/useChat'
 import { renderMarkdown, decodeFragment } from '../utils/markdown'
@@ -447,6 +448,7 @@ const props = defineProps<{
   resource?: ChatResource | null
   llmConfig?: LlmConfig | null
   isBlank?: boolean
+  chatMode?: Ref<'blank' | 'file' | 'folder'>
 }>()
 
 const {
@@ -455,7 +457,7 @@ const {
   selectedModelId,
   thinking,
   fileTruncated,
-  isFolder,
+  isFolder: computedIsFolder,
   isBlank: computedIsBlank,
   messages,
   isLoading,
@@ -465,6 +467,8 @@ const {
   savingIndex,
   savedIndices,
   sendMessage,
+  sendFolderMessage,
+  sendBlankMessage,
   applyEdit,
   saveAnswer,
   discardEdit,
@@ -473,9 +477,30 @@ const {
   ensureReady
 } = useChat(props.llmConfig ?? null, toRef(props, 'resource'))
 
-// isBlank: explicit prop (from componentAttrs) takes precedence over the
-// computed from useChat (which only sees the resource, not the panel context).
-const isBlank = computed(() => props.isBlank ?? computedIsBlank.value)
+// Der Modus ist strikt der Einstiegspunkt (chatModeRef aus index.ts). Der
+// resource-basierte Computed ist nur Fallback, falls das Prop fehlt
+// (z. B. ältere Host-Versionen ohne chatMode-Durchreichung).
+const isFolder = computed(
+  () => (props.chatMode ? unref(props.chatMode) === 'folder' : computedIsFolder.value)
+)
+const isBlank = computed(
+  () =>
+    props.isBlank ??
+    (props.chatMode ? unref(props.chatMode) === 'blank' : computedIsBlank.value && !unref(isFolder))
+)
+
+// useChat.sendMessage dispatcht intern nach resource-basierten Computed —
+// bei Ordner ohne resource würde das falsch landen. Hier dispatchen wir
+// strikt nach dem Modus.
+const sendByMode = (text: string, mode: 'chat' | 'edit') => {
+  if (unref(isFolder)) {
+    return sendFolderMessage(text)
+  }
+  if (unref(isBlank)) {
+    return sendBlankMessage(text)
+  }
+  return sendMessage(text, mode)
+}
 
 // Markdown rendering for assistant answers (raw HTML, sanitized — see
 // utils/markdown.ts). Keyed by content so the cache stays valid across
@@ -522,7 +547,7 @@ function pickOption(option: string): void {
   if (isLoading.value) {
     return
   }
-  void sendMessage(option, 'chat')
+  void sendByMode(option, 'chat')
 }
 
 // Fragment preview (middle-area overlay). The [] button sits inside the
@@ -766,7 +791,7 @@ async function submit(): Promise<void> {
     return
   }
   inputText.value = ''
-  await sendMessage(text, mode.value)
+  await sendByMode(text, mode.value)
   if (panelError.value) {
     inputText.value = text
   }
