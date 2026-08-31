@@ -23,7 +23,7 @@ const APP_ID = 'chat-with-file'
 
 export default defineWebApplication({
   setup({ applicationConfig }) {
-    const { $pgettext } = useGettext()
+    const { $gettext, $pgettext } = useGettext()
     const resourcesStore = useResourcesStore()
     const sideBarStore = useSideBar() as any
     const spacesStore = useSpacesStore()
@@ -95,21 +95,28 @@ export default defineWebApplication({
         panel: {
           name: APP_ID,
           icon: 'message',
-          title: () => $pgettext('Sidebar panel tab title', 'Chat'),
+          // Tab-Titel spiegelt den aktiven Modus: im Personal Space ist der
+          // offene Panel immer "Create with Chat" (Blank oder aktiver
+          // Personal-Folder-Chat), in allen anderen Spaces "Chat".
+          title: () =>
+            spacesStore.currentSpace?.driveType === 'personal'
+              ? $pgettext('Sidebar panel tab title (create mode)', 'Create with Chat')
+              : $pgettext('Sidebar panel tab title', 'Chat'),
           isVisible: () => true,
           component: ChatPanel,
-          componentAttrs: () => {
-            // Wenn der Modus 'file'/'folder' ist, aber keine gültige Auswahl
-            // mehr existiert (z.B. Ordner gewechselt), fallback auf Blank.
-            // So bleibt der Create-Chat-Modus erhalten, wenn der User den
-            // Ordner wechselt, während das Panel offen ist.
+          componentAttrs: (context?: any) => {
+            // Der Modus kommt strikt vom Einstiegspunkt (blank/file/folder-Handler).
+            // Der Host-Context ist hier NICHT maßgeblich: ohne Selection reicht
+            // FileSideBar den aktuellen Ordner als items[0] durch (und den Space
+            // bei Root) — der würde den Folder-/File-Chat stillschweigend in den
+            // "Create with Chat"-Modus kippen. Auswahl ohne Auswahl wird
+            // stattdessen als leer behandelt (leeres Panel, kein Modus-Wechsel).
             const mode = chatModeRef.value
             const selected = resourcesStore.selectedResources[0] ?? null
-            const effectiveMode =
-              (mode === 'file' || mode === 'folder') && !selected ? 'blank' : mode
+            const useSelection = mode !== 'blank' && !!selected
             return {
-              resource: effectiveMode === 'blank' ? null : selected,
-              isBlank: effectiveMode === 'blank' || undefined,
+              resource: useSelection ? selected : null,
+              isBlank: mode === 'blank' || undefined,
               llmConfig
             }
           }

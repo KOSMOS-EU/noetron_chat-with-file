@@ -19,9 +19,7 @@
           </template>
           <template v-else-if="isBlank">
             {{
-              $gettext(
-                'Ask me anything — or tell me what to create for you (documents, apps, lists…).'
-              )
+              $gettext('Tell me what to create for you (documents, apps, lists…).')
             }}
           </template>
           <template v-else-if="mode === 'edit'">

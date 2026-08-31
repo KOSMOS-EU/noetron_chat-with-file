@@ -13,7 +13,8 @@
     },
     "Create with Chat": {
       "New menu file type label": "Mit Chat erstellen",
-      "New menu group title": "Mit Chat erstellen"
+      "New menu group title": "Mit Chat erstellen",
+      "Sidebar panel tab title (create mode)": "Create with Chat"
     },
     "Chat with File": {
       "Chat with File extension name": "Mit Datei chatten"
