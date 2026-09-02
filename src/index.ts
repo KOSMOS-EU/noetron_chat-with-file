@@ -124,6 +124,7 @@ export default defineWebApplication({
             }
             return {
               resource,
+              llmConfig,
               isBlank: mode === 'blank' || undefined,
               chatMode: toRef(chatModeRef)
             }
