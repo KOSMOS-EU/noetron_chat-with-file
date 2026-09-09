@@ -114,10 +114,13 @@ export default defineWebApplication({
             const mode = chatModeRef.value
             let resource: Resource | null
             if (mode === 'folder') {
-              // Breadcrumb-Trigger: selectedResources enthält nur die paginierte
-              // Liste — der aktuelle Ordner ist dort nie enthalten. currentFolder
-              // ist daher die verlässliche Quelle für den Ordner-Chat.
-              resource = resourcesStore.currentFolder ?? null
+              // Context-Action on a folder in the list: the selected folder is
+              // in selectedResources. currentFolder is only correct when the
+              // breadcrumb trigger opens the chat for the current container.
+              const selected = resourcesStore.selectedResources[0] ?? null
+              resource = (selected?.isFolder || selected?.type === 'folder')
+                ? selected
+                : resourcesStore.currentFolder ?? null
             } else {
               const selected = resourcesStore.selectedResources[0] ?? null
               resource = mode !== 'blank' && selected ? selected : null
