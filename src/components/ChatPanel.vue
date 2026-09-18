@@ -1,5 +1,17 @@
 <template>
   <div data-testid="chat-with-file-panel" class="chat-panel">
+    <oc-button
+      v-if="!isMobile"
+      :class="sideBarIsExpanded ? 'text-role-text-interactive' : 'text-role-text-muted'"
+      appearance="raw"
+      class="absolute top-2 right-2 z-10 text-xs font-semibold"
+      data-testid="toggle-sidebar-width"
+      :aria-label="$gettext('Toggle sidebar width')"
+      :title="$gettext('Toggle sidebar width')"
+      @click.stop="toggleSideBarExpanded"
+    >
+      x2
+    </oc-button>
     <!-- Unconfigured placeholder (folder and blank chat run against Taki and
          do not need the local endpoint config) -->
     <div v-if="status === 'unconfigured' && !isFolder && !isBlank" class="chat-placeholder">
@@ -430,6 +442,7 @@
 import { ref, computed, toRef, watch, nextTick, onMounted, onBeforeUnmount, unref } from 'vue'
 import type { Ref } from 'vue'
 import { useGettext } from 'vue3-gettext'
+import { useSideBar } from '@opencloud-eu/web-pkg'
 import { useChat, TEXT_EXTENSIONS, type ChatResource } from '../composables/useChat'
 import { renderMarkdown, decodeFragment } from '../utils/markdown'
 import type { LlmConfig, LlmModelOption } from '../composables/useLlm'
@@ -443,6 +456,9 @@ interface FlatLine {
 }
 
 const { $gettext, $pgettext } = useGettext()
+const sidebarStore = useSideBar() as any
+const { sideBarIsExpanded, toggleSideBarExpanded } = sidebarStore
+const isMobile = window.matchMedia('(max-width: 768px)').matches
 
 const props = defineProps<{
   resource?: ChatResource | null
@@ -836,6 +852,7 @@ onMounted(() => {
 
 <style scoped>
 .chat-panel {
+  position: relative;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
