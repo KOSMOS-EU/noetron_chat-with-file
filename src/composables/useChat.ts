@@ -479,9 +479,10 @@ export function useChat(
     const token = await ensureChatToken()
     if (token) {
       let res = await fetch('/chat-direct/ask', { ...init, headers: directHeaders(token.token) })
-      if (res.status === 401) {
-        // Token rejected (e.g. Taki restarted with a new secret) — force
-        // one re-fetch and retry.
+      if (res.status === 401 || res.status === 500) {
+        // Token rejected (401, e.g. Taki restarted with a new secret) or
+        // embedded Reva-JWT invalid (500, e.g. OpenCloud restarted) — force
+        // one re-fetch and retry with a fresh token.
         const refreshed = await fetchChatToken()
         if (refreshed) {
           res = await fetch('/chat-direct/ask', {
@@ -517,8 +518,8 @@ export function useChat(
       body: form,
       headers: { Authorization: `Bearer ${token.token}` }
     })
-    if (res.status === 401) {
-      // Token rejected (e.g. Taki restarted with a new secret) — force one
+    if (res.status === 401 || res.status === 500) {
+      // Token rejected (401) or embedded Reva-JWT invalid (500) — force one
       // re-fetch and retry.
       const refreshed = await fetchChatToken()
       if (refreshed) {
