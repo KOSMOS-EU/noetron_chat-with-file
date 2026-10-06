@@ -404,6 +404,77 @@ export function useChat(
     return workspaceShare
   }
 
+  // Results share: Public-Link-Share auf /Results im persönlichen Space.
+  // Für das Output-Tool im Folder-Chat — Taki speichert fertige Dokumente
+  // (Berichte, Vorberichte) dort persistent.
+  let resultsShare: WorkspaceShare | null = null
+  const RESULTS_SHARE_TTL_MS = 50 * 60 * 1000
+
+  async function releaseResultsShare(): Promise<void> {
+    if (!resultsShare) return
+    const { driveId, itemId, permId } = resultsShare
+    resultsShare = null
+    try {
+      await graphClient.permissions.deletePermission(driveId, itemId, permId)
+    } catch { /* 1h expiry is the backstop */ }
+  }
+
+  async function ensureResultsShare(): Promise<WorkspaceShare> {
+    if (resultsShare && Date.now() - resultsShare.createdAt < RESULTS_SHARE_TTL_MS) {
+      return resultsShare
+    }
+    await releaseResultsShare()
+
+    const space = spacesStore.spaces.find((s) => s.driveType === 'personal')
+    if (!space) {
+      throw new Error($gettext('Personal space not available'))
+    }
+
+    // Ensure /results exists (MKCOL → 405 = already there)
+    try {
+      await webdavWithAuthRetry(() =>
+        clientService.webdav.createFolder(space, { path: 'results', fetchFolder: false })
+      )
+    } catch (err) {
+      if ((err as { statusCode?: number })?.statusCode !== 405) {
+        throw err
+      }
+    }
+
+    const { children } = await webdavWithAuthRetry(() =>
+      clientService.webdav.listFiles(space, { path: '/' })
+    )
+    const resEntry = children?.find((e) => e.name === 'results' && e.type === 'folder')
+    if (!resEntry?.id) {
+      throw new Error($gettext('Could not resolve results folder'))
+    }
+
+    const password = passwordPolicyService.generatePassword()
+    const link = await graphClient.permissions.createLink(space.id, resEntry.id, {
+      type: 'edit',
+      password,
+      expirationDateTime: new Date(Date.now() + 3600 * 1000).toISOString()
+    })
+    const webUrl = link.webUrl
+    if (!webUrl) {
+      throw new Error($gettext('Could not create the results link'))
+    }
+    const token = new URL(webUrl).pathname.split('/').pop() ?? ''
+    if (!token) {
+      throw new Error($gettext('Could not create the results link'))
+    }
+
+    resultsShare = {
+      permId: link.id,
+      driveId: space.id,
+      itemId: resEntry.id,
+      token,
+      password,
+      createdAt: Date.now()
+    }
+    return resultsShare
+  }
+
   function buildHeaders(): Record<string, string> {
     const h: Record<string, string> = { 'Content-Type': 'application/json' }
     const token = authStore.accessToken
@@ -972,6 +1043,7 @@ export function useChat(
 
     try {
       const share = await ensureFolderShare()
+      const outShare = await ensureResultsShare().catch(() => null)
       const folderName = resource.value?.name ?? ''
 
       // Taki builds the folder context into its own system prompt; we send the
@@ -1026,7 +1098,8 @@ export function useChat(
           context: {
             share: { token: share.token, password: share.password },
             folder_name: folderName,
-            scope
+            scope,
+            ...(outShare ? { output: { share: { token: outShare.token, password: outShare.password } } } : {})
           },
           stream: true
         }),
