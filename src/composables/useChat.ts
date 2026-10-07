@@ -111,6 +111,10 @@ export interface UseChatResult {
    */
   transcribeAudio: (audio: Blob, fileName: string) => Promise<string>
   ensureReady: () => void
+  /** Extract successful Output-tool files from a tool_trace array */
+  getOutputFiles: (trace: ToolTraceEntry[] | undefined) => { path: string; size: number }[]
+  /** Web URL of the results share (for output file links) */
+  resultsShareUrl: Ref<string>
 }
 
 /** Final payload of the Taki /chat/ask 'done' event (or the plain JSON answer) */
@@ -331,6 +335,7 @@ export function useChat(
     itemId: string
     token: string
     password: string
+    webUrl: string
     createdAt: number
   }
   let workspaceShare: WorkspaceShare | null = null
@@ -399,6 +404,7 @@ export function useChat(
       itemId: wsEntry.id,
       token,
       password,
+      webUrl,
       createdAt: Date.now()
     }
     return workspaceShare
@@ -409,6 +415,7 @@ export function useChat(
   // (Berichte, Vorberichte) dort persistent.
   let resultsShare: WorkspaceShare | null = null
   const RESULTS_SHARE_TTL_MS = 50 * 60 * 1000
+  const resultsShareUrl = ref<string>('')
 
   async function releaseResultsShare(): Promise<void> {
     if (!resultsShare) return
@@ -470,8 +477,10 @@ export function useChat(
       itemId: resEntry.id,
       token,
       password,
+      webUrl,
       createdAt: Date.now()
     }
+    resultsShareUrl.value = webUrl
     return resultsShare
   }
 
@@ -1474,6 +1483,14 @@ export function useChat(
     cachedFileEtag = null
   }
 
+  /** Extract successful Output-tool files from a tool_trace array */
+  function getOutputFiles(trace: ToolTraceEntry[] | undefined): { path: string; size: number }[] {
+    if (!trace) return []
+    return trace
+      .filter((t) => t.tool === 'Output' && t.method === 'output' && !t.error && t.path)
+      .map((t) => ({ path: t.path!, size: t.chars ?? 0 }))
+  }
+
   return {
     status,
     models,
@@ -1498,6 +1515,8 @@ export function useChat(
     discardEdit,
     clearChat,
     transcribeAudio,
-    ensureReady
+    ensureReady,
+    getOutputFiles,
+    resultsShareUrl
   }
 }

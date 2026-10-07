@@ -134,6 +134,40 @@
                   </svg>
                 </button>
               </div>
+              <!-- Output files (from Output tool) -->
+              <div
+                v-if="message.role === 'assistant' && message.toolTrace && getOutputFiles(message.toolTrace).length > 0"
+                class="output-files"
+              >
+                <span class="output-files-label">
+                  {{ $pgettext('Output files label', 'Generated files') }}
+                  ({{ getOutputFiles(message.toolTrace).length }})
+                </span>
+                <div
+                  v-for="(f, fi) in getOutputFiles(message.toolTrace)"
+                  :key="fi"
+                  class="output-file-row"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13z"/>
+                  </svg>
+                  <span class="output-file-name">{{ f.path.split('/').pop() }}</span>
+                  <span class="output-file-size">{{ formatChars(f.size) }}</span>
+                  <a
+                    v-if="resultsShareUrl"
+                    class="output-file-link"
+                    :href="resultsShareUrl + '/' + f.path"
+                    target="_blank"
+                    rel="noopener"
+                    :aria-label="$pgettext('Output file action', 'View file')"
+                    :title="$pgettext('Output file action', 'View file')"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+                    </svg>
+                  </a>
+                </div>
+              </div>
               <template v-if="message.toolTrace && message.toolTrace.length > 0">
                 <button class="trace-toggle" @click="toggleTrace(index)">
                   <span class="diff-toggle-icon">{{ isTraceExpanded(index) ? '▾' : '▸' }}</span>
@@ -490,7 +524,9 @@ const {
   discardEdit,
   clearChat,
   transcribeAudio,
-  ensureReady
+  ensureReady,
+  getOutputFiles,
+  resultsShareUrl
 } = useChat(props.llmConfig ?? null, toRef(props, 'resource'))
 
 // Der Modus ist strikt der Einstiegspunkt (chatModeRef aus index.ts). Der
@@ -1140,6 +1176,51 @@ onMounted(() => {
 }
 
 /* Tool-trace (folder chat): which files the model accessed */
+.output-files {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--color-background-element-secondary, rgba(0, 0, 0, 0.04));
+  font-size: 0.85em;
+}
+.output-files-label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--color-text-maximum, #222);
+}
+.output-file-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+.output-file-row svg {
+  flex-shrink: 0;
+  color: var(--color-text-maxcontrast-inverted, #fff);
+  opacity: 0.6;
+}
+.output-file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.output-file-size {
+  flex-shrink: 0;
+  opacity: 0.6;
+  font-size: 0.9em;
+}
+.output-file-link {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-primary, #0082c9);
+  text-decoration: none;
+}
+.output-file-link:hover {
+  text-decoration: underline;
+}
 .trace-toggle {
   display: inline-flex;
   align-items: center;
