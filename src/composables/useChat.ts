@@ -1030,12 +1030,47 @@ export function useChat(
     }
   }
 
+  /** Persist the full chat session to Personal Space/Chats/<chatId>/session.json */
+  function persistSession(): void {
+    const space = spacesStore.spaces.find((s) => s.driveType === 'personal')
+    if (!space) return
+    const session = {
+      chatId,
+      folder: resource.value ? { id: resource.value.id, name: resource.value.name } : null,
+      model: selectedModel.value?.model ?? null,
+      savedAt: new Date().toISOString(),
+      messages: messages.value.map((m) => ({
+        role: m.role,
+        content: m.content,
+        options: m.options
+      }))
+    }
+    const payload = JSON.stringify(session, null, 2)
+    // Fire-and-forget: create folder (ignore 405), then overwrite session.json
+    webdavWithAuthRetry(() =>
+      clientService.webdav.createFolder(space, { path: 'Chats', fetchFolder: false })
+    ).catch(() => { /* 405 = exists */ })
+      .then(() =>
+        webdavWithAuthRetry(() =>
+          clientService.webdav.createFolder(space, { path: `Chats/${chatId}`, fetchFolder: false })
+        )
+      ).catch(() => { /* 405 = exists */ })
+      .then(() =>
+        clientService.webdav.putFileContents(space, {
+          path: `Chats/${chatId}/session.json`,
+          content: payload,
+          overwrite: true
+        })
+      ).catch(() => { /* silent — session persist must never block UI */ })
+  }
+
   // Folder chat: the model fetches folder content itself via tools, executed
   // server-side in Taki against an ephemeral public link share. No file text
   // ever passes through the client.
   async function sendFolderMessage(text: string): Promise<void> {
     const userMessage: ChatMessage = { role: 'user', content: text }
     messages.value = [...messages.value, userMessage]
+    persistSession()
     isLoading.value = true
     panelError.value = null
 
@@ -1185,6 +1220,7 @@ export function useChat(
         assistantMessage.options = options
       }
       messages.value = [...messages.value, assistantMessage]
+      persistSession()
     } catch (err) {
       // Roll back the optimistic user message so the user can retry cleanly
       messages.value = messages.value.slice(0, -1)
@@ -1218,6 +1254,7 @@ export function useChat(
   async function sendBlankMessage(text: string): Promise<void> {
     const userMessage: ChatMessage = { role: 'user', content: text }
     messages.value = [...messages.value, userMessage]
+    persistSession()
     isLoading.value = true
     panelError.value = null
 
@@ -1319,6 +1356,7 @@ export function useChat(
         assistantMessage.options = options
       }
       messages.value = [...messages.value, assistantMessage]
+      persistSession()
     } catch (err) {
       messages.value = messages.value.slice(0, -1)
       if (inactivityAborted) {
