@@ -1435,19 +1435,28 @@ export function useChat(
     savingIndex.value = index
     panelError.value = null
     try {
+      // Personal Space/Results/<chatId>/
       try {
         await webdavWithAuthRetry(() =>
-          clientService.webdav.createFolder(space, { path: 'Chats', fetchFolder: false })
+          clientService.webdav.createFolder(space, { path: 'Results', fetchFolder: false })
         )
       } catch (err) {
-        // MKCOL on an existing collection answers 405 — that is the success case here
+        if ((err as { statusCode?: number })?.statusCode !== 405) {
+          throw err
+        }
+      }
+      try {
+        await webdavWithAuthRetry(() =>
+          clientService.webdav.createFolder(space, { path: `Results/${chatId}`, fetchFolder: false })
+        )
+      } catch (err) {
         if ((err as { statusCode?: number })?.statusCode !== 405) {
           throw err
         }
       }
       await webdavWithAuthRetry(() =>
         clientService.webdav.putFileContents(space, {
-          path: `Chats/${date}_${time}_${chatId}.md`,
+          path: `Results/${chatId}/${date}_${time}.md`,
           content: header + msg.content,
           overwrite: false
         })
