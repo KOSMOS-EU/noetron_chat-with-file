@@ -37,6 +37,7 @@ export interface ToolTraceEntry {
   extra?: string
   method?: string
   chars?: number
+  file_size?: number
   truncated?: boolean
   error?: string
   ms?: number
@@ -440,7 +441,7 @@ export function useChat(
     // Ensure /results exists (MKCOL → 405 = already there)
     try {
       await webdavWithAuthRetry(() =>
-        clientService.webdav.createFolder(space, { path: 'results', fetchFolder: false })
+        clientService.webdav.createFolder(space, { path: 'Results', fetchFolder: false })
       )
     } catch (err) {
       if ((err as { statusCode?: number })?.statusCode !== 405) {
@@ -451,7 +452,7 @@ export function useChat(
     const { children } = await webdavWithAuthRetry(() =>
       clientService.webdav.listFiles(space, { path: '/' })
     )
-    const resEntry = children?.find((e) => e.name === 'results' && e.type === 'folder')
+    const resEntry = children?.find((e) => e.name === 'Results' && e.type === 'folder')
     if (!resEntry?.id) {
       throw new Error($gettext('Could not resolve results folder'))
     }
@@ -1534,8 +1535,8 @@ export function useChat(
   function getOutputFiles(trace: ToolTraceEntry[] | undefined): { path: string; size: number }[] {
     if (!trace) return []
     return trace
-      .filter((t) => t.tool === 'Output' && t.method === 'output' && !t.error && t.path)
-      .map((t) => ({ path: t.path!, size: t.chars ?? 0 }))
+      .filter((t) => (t.tool === 'output_file' || t.tool === 'output_text') && t.method === 'output' && !t.error && t.path)
+      .map((t) => ({ path: t.path!, size: t.file_size ?? t.chars ?? 0 }))
   }
 
   return {

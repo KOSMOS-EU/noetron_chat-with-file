@@ -159,6 +159,7 @@
                     :href="resultsShareUrl + '/' + f.path"
                     target="_blank"
                     rel="noopener"
+                    :download="f.path.split('/').pop()"
                     :aria-label="$pgettext('Output file action', 'View file')"
                     :title="$pgettext('Output file action', 'View file')"
                   >
